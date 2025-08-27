@@ -1,11 +1,12 @@
 // src/components/ContactManager.jsx
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useMemo, useState } from 'react';
 import { getContacts, addContact, updateContact, deleteContact } from '../utils/db';
 
 export default function ContactManager() {
   const [contacts, setContacts] = useState([]);
   const [form, setForm] = useState({ name: '', phone: '', email: '', address: '' });
   const [editingId, setEditingId] = useState(null);
+  const [query, setQuery] = useState('');
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -14,7 +15,6 @@ export default function ContactManager() {
 
   const refresh = async () => {
     const all = await getContacts();
-    // sort by name for nicer display
     all.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     setContacts(all);
   };
@@ -58,7 +58,7 @@ export default function ContactManager() {
     refresh();
   };
 
-  // --- Export / Import ---
+  // --- Export / Import (JSON) ---
   const exportContacts = async () => {
     const list = await getContacts();
     const blob = new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' });
@@ -80,8 +80,6 @@ export default function ContactManager() {
       const text = await file.text();
       const data = JSON.parse(text);
       if (!Array.isArray(data)) throw new Error('Invalid file format');
-
-      // insert without reusing ids to avoid collisions
       for (const c of data) {
         const { id, ...rest } = c || {};
         if (rest && (rest.name || rest.email || rest.phone || rest.address)) {
@@ -97,8 +95,93 @@ export default function ContactManager() {
     }
   };
 
+  // --- Search / filter ---
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return contacts;
+    return contacts.filter((c) => {
+      const hay = `${c.name || ''} ${c.email || ''} ${c.phone || ''} ${c.address || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [contacts, query]);
+
+  // --- vCard share/download ---
+  function makeVCard(c) {
+    // very basic vCard 3.0
+    const lines = [
+      'BEGIN:VCARD',
+      'VERSION:3.0',
+      `FN:${c.name || ''}`,
+      c.phone ? `TEL;TYPE=CELL:${c.phone}` : '',
+      c.email ? `EMAIL;TYPE=INTERNET:${c.email}` : '',
+      c.address ? `ADR;TYPE=HOME:;;${c.address.replace(/,/g, '\\,')}` : '',
+      'END:VCARD',
+    ].filter(Boolean);
+    return lines.join('\r\n');
+  }
+
+  async function shareVCard(c) {
+    const vcf = makeVCard(c);
+    const blob = new Blob([vcf], { type: 'text/vcard' });
+    const file = new File([blob], `${(c.name || 'contact').replace(/\s+/g, '_')}.vcf`, { type: 'text/vcard' });
+
+    if (navigator.share && navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: c.name || 'Contact', text: 'Contact card' });
+      } catch (e) {
+        // user cancelled or share failed; fall back to download
+        downloadVCard(file);
+      }
+    } else {
+      downloadVCard(file);
+    }
+  }
+
+  function downloadVCard(file) {
+    const url = URL.createObjectURL(file);
+    const a = Object.assign(document.createElement('a'), { href: url, download: file.name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <section>
+      {/* Top bar: search + export/import */}
+      <div className="card">
+        <div className="row gap" style={{ alignItems: 'stretch' }}>
+          <input
+            id="search"
+            name="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search contacts…"
+            aria-label="Search contacts"
+            style={{ flex: 1 }}
+          />
+          <button type="button" className="btn" onClick={exportContacts} aria-label="Export contacts to JSON">
+            Export
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="Import contacts from JSON"
+          >
+            Import
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json"
+            onChange={importContacts}
+            style={{ display: 'none' }}
+          />
+        </div>
+      </div>
+
+      {/* Form */}
       <form className="card" onSubmit={editingId ? handleUpdate : handleAdd} aria-label="Contact form">
         <div className="grid">
           <div className="field">
@@ -124,32 +207,23 @@ export default function ContactManager() {
             {editingId ? 'Update' : 'Add'}
           </button>
           {editingId && (
-            <button type="button" className="btn" onClick={() => { setEditingId(null); clearForm(); }}>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setEditingId(null);
+                clearForm();
+              }}
+            >
               Cancel
             </button>
           )}
-          <div className="spacer" />
-          <button type="button" className="btn" onClick={exportContacts}>Export</button>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => fileInputRef.current?.click()}
-            aria-label="Import contacts from JSON file"
-          >
-            Import
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json"
-            onChange={importContacts}
-            style={{ display: 'none' }}
-          />
         </div>
       </form>
 
+      {/* List */}
       <ul className="list" aria-label="Contacts list">
-        {contacts.map((row) => (
+        {filtered.map((row) => (
           <li key={row.id} className="list-row">
             <div className="who">
               <div className="name">{row.name}</div>
@@ -157,13 +231,22 @@ export default function ContactManager() {
               <div className="muted small">{row.address || ''}</div>
             </div>
             <div className="row gap">
-              <button className="btn" onClick={() => startEdit(row)} aria-label={`Edit ${row.name}`}>Edit</button>
-              <button className="btn danger" onClick={() => handleDelete(row.id)} aria-label={`Delete ${row.name}`}>Delete</button>
+              <button className="btn" onClick={() => shareVCard(row)} aria-label={`Share ${row.name} as vCard`}>
+                Share
+              </button>
+              <button className="btn" onClick={() => startEdit(row)} aria-label={`Edit ${row.name}`}>
+                Edit
+              </button>
+              <button className="btn danger" onClick={() => handleDelete(row.id)} aria-label={`Delete ${row.name}`}>
+                Delete
+              </button>
             </div>
           </li>
         ))}
-        {contacts.length === 0 && (
-          <li className="empty">No contacts yet. Add your first one above.</li>
+        {filtered.length === 0 && (
+          <li className="empty">
+            {query ? 'No contacts match your search.' : 'No contacts yet. Add your first one above.'}
+          </li>
         )}
       </ul>
     </section>

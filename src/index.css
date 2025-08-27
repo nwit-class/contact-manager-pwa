@@ -111,3 +111,7 @@ input:focus { border-color: var(--accent); }
   border: 1px dashed var(--border);
   border-radius: 12px;
 }
+/* ensure top bar items have consistent height */
+.card .row input {
+  height: 38px;
+}
