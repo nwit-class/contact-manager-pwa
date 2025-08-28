@@ -1,17 +1,66 @@
 // src/components/ContactManager.jsx
 import React, { useEffect, useRef, useMemo, useState } from 'react';
 import { getContacts, addContact, updateContact, deleteContact } from '../utils/db';
+import { useToast } from '../App';
+
+// --- CSV helpers (simple, handles quoted fields) ---
+function toCSV(rows, columns) {
+  const esc = (v) => {
+    if (v == null) return '';
+    const s = String(v);
+    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  const header = columns.join(',');
+  const body = rows.map((r) => columns.map((c) => esc(r[c])).join(',')).join('\n');
+  return `${header}\n${body}`;
+}
+
+function parseCSV(text) {
+  // returns array of objects keyed by header row
+  const rows = [];
+  let i = 0, field = '', inQuotes = false, row = [];
+  const pushField = () => { row.push(field); field = ''; };
+  const pushRow = () => { rows.push(row); row = []; };
+
+  while (i < text.length) {
+    const ch = text[i++];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i] === '"') { field += '"'; i++; } // escaped quote
+        else { inQuotes = false; }
+      } else { field += ch; }
+    } else {
+      if (ch === '"') inQuotes = true;
+      else if (ch === ',') pushField();
+      else if (ch === '\n') { pushField(); pushRow(); }
+      else if (ch === '\r') { /* ignore CR */ }
+      else field += ch;
+    }
+  }
+  // last field/row
+  pushField();
+  if (row.length > 1 || row[0] !== '') pushRow();
+
+  if (rows.length === 0) return [];
+  const headers = rows[0].map((h) => (h || '').trim());
+  return rows.slice(1).map((r) => {
+    const obj = {};
+    headers.forEach((h, idx) => { if (h) obj[h.toLowerCase()] = r[idx] ?? ''; });
+    return obj;
+  });
+}
 
 export default function ContactManager() {
+  const toast = useToast();
   const [contacts, setContacts] = useState([]);
   const [form, setForm] = useState({ name: '', phone: '', email: '', address: '' });
   const [editingId, setEditingId] = useState(null);
   const [query, setQuery] = useState('');
-  const fileInputRef = useRef(null);
+  const jsonInputRef = useRef(null);
+  const csvInputRef = useRef(null);
 
-  useEffect(() => {
-    refresh();
-  }, []);
+  useEffect(() => { refresh(); }, []);
 
   const refresh = async () => {
     const all = await getContacts();
@@ -28,9 +77,10 @@ export default function ContactManager() {
 
   const handleAdd = async (e) => {
     e.preventDefault();
-    if (!form.name.trim()) return;
+    if (!form.name.trim()) { toast('Name is required', 'warn'); return; }
     await addContact({ ...form });
     clearForm();
+    toast('Contact added', 'success');
     refresh();
   };
 
@@ -50,36 +100,32 @@ export default function ContactManager() {
     await updateContact(editingId, { ...form });
     setEditingId(null);
     clearForm();
+    toast('Contact updated', 'success');
     refresh();
   };
 
   const handleDelete = async (id) => {
     await deleteContact(id);
+    toast('Contact deleted', 'success');
     refresh();
   };
 
   // --- Export / Import (JSON) ---
-  const exportContacts = async () => {
+  const exportJSON = async () => {
     const list = await getContacts();
     const blob = new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement('a'), {
-      href: url,
-      download: 'contacts-backup.json',
-    });
-    document.body.append(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    const a = Object.assign(document.createElement('a'), { href: url, download: 'contacts-backup.json' });
+    document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    toast('Exported JSON', 'info');
   };
 
-  const importContacts = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const importJSON = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
     try {
       const text = await file.text();
       const data = JSON.parse(text);
-      if (!Array.isArray(data)) throw new Error('Invalid file format');
+      if (!Array.isArray(data)) throw new Error('Invalid JSON');
       for (const c of data) {
         const { id, ...rest } = c || {};
         if (rest && (rest.name || rest.email || rest.phone || rest.address)) {
@@ -88,10 +134,49 @@ export default function ContactManager() {
       }
       await refresh();
       e.target.value = '';
-      alert('Imported contacts successfully.');
+      toast('Imported JSON', 'success');
     } catch (err) {
       console.error(err);
-      alert('Failed to import. Please select a valid JSON backup.');
+      toast('Failed to import JSON', 'error');
+    }
+  };
+
+  // --- Export / Import (CSV) ---
+  const exportCSV = async () => {
+    const list = await getContacts();
+    const cols = ['name', 'phone', 'email', 'address'];
+    const csv = toCSV(list, cols);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), { href: url, download: 'contacts.csv' });
+    document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    toast('Exported CSV', 'info');
+  };
+
+  const importCSV = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    try {
+      const text = await file.text();
+      const rows = parseCSV(text); // [{name,phone,email,address}]
+      let count = 0;
+      for (const r of rows) {
+        const rest = {
+          name: r.name || r.fullname || r.fn || '',
+          phone: r.phone || r.tel || '',
+          email: r.email || '',
+          address: r.address || r.adr || '',
+        };
+        if (rest.name || rest.email || rest.phone || rest.address) {
+          await addContact(rest);
+          count++;
+        }
+      }
+      await refresh();
+      e.target.value = '';
+      toast(`Imported ${count} from CSV`, 'success');
+    } catch (err) {
+      console.error(err);
+      toast('Failed to import CSV', 'error');
     }
   };
 
@@ -105,16 +190,15 @@ export default function ContactManager() {
     });
   }, [contacts, query]);
 
-  // --- vCard share/download ---
+  // --- vCard share ---
   function makeVCard(c) {
-    // very basic vCard 3.0
     const lines = [
       'BEGIN:VCARD',
       'VERSION:3.0',
       `FN:${c.name || ''}`,
       c.phone ? `TEL;TYPE=CELL:${c.phone}` : '',
       c.email ? `EMAIL;TYPE=INTERNET:${c.email}` : '',
-      c.address ? `ADR;TYPE=HOME:;;${c.address.replace(/,/g, '\\,')}` : '',
+      c.address ? `ADR;TYPE=HOME:;;${String(c.address).replace(/,/g, '\\,')}` : '',
       'END:VCARD',
     ].filter(Boolean);
     return lines.join('\r\n');
@@ -124,33 +208,22 @@ export default function ContactManager() {
     const vcf = makeVCard(c);
     const blob = new Blob([vcf], { type: 'text/vcard' });
     const file = new File([blob], `${(c.name || 'contact').replace(/\s+/g, '_')}.vcf`, { type: 'text/vcard' });
-
     if (navigator.share && navigator.canShare?.({ files: [file] })) {
       try {
         await navigator.share({ files: [file], title: c.name || 'Contact', text: 'Contact card' });
-      } catch (e) {
-        // user cancelled or share failed; fall back to download
-        downloadVCard(file);
-      }
-    } else {
-      downloadVCard(file);
+        return;
+      } catch (e) {/* fall through */}
     }
-  }
-
-  function downloadVCard(file) {
     const url = URL.createObjectURL(file);
     const a = Object.assign(document.createElement('a'), { href: url, download: file.name });
-    document.body.append(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);
   }
 
   return (
     <section>
-      {/* Top bar: search + export/import */}
+      {/* Top bar: search + JSON/CSV import-export */}
       <div className="card">
-        <div className="row gap" style={{ alignItems: 'stretch' }}>
+        <div className="row gap" style={{ alignItems: 'stretch', flexWrap: 'wrap' }}>
           <input
             id="search"
             name="search"
@@ -158,26 +231,23 @@ export default function ContactManager() {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search contacts…"
             aria-label="Search contacts"
-            style={{ flex: 1 }}
+            style={{ flex: 1, minWidth: 220 }}
           />
-          <button type="button" className="btn" onClick={exportContacts} aria-label="Export contacts to JSON">
-            Export
+          <button type="button" className="btn" onClick={exportJSON} aria-label="Export contacts to JSON">
+            Export JSON
           </button>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => fileInputRef.current?.click()}
-            aria-label="Import contacts from JSON"
-          >
-            Import
+          <button type="button" className="btn" onClick={() => jsonInputRef.current?.click()} aria-label="Import contacts from JSON">
+            Import JSON
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json"
-            onChange={importContacts}
-            style={{ display: 'none' }}
-          />
+          <input ref={jsonInputRef} type="file" accept="application/json" onChange={importJSON} style={{ display: 'none' }} />
+
+          <button type="button" className="btn" onClick={exportCSV} aria-label="Export contacts to CSV">
+            Export CSV
+          </button>
+          <button type="button" className="btn" onClick={() => csvInputRef.current?.click()} aria-label="Import contacts from CSV">
+            Import CSV
+          </button>
+          <input ref={csvInputRef} type="file" accept=".csv,text/csv" onChange={importCSV} style={{ display: 'none' }} />
         </div>
       </div>
 
@@ -207,14 +277,7 @@ export default function ContactManager() {
             {editingId ? 'Update' : 'Add'}
           </button>
           {editingId && (
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                setEditingId(null);
-                clearForm();
-              }}
-            >
+            <button type="button" className="btn" onClick={() => { setEditingId(null); clearForm(); }}>
               Cancel
             </button>
           )}
@@ -231,15 +294,9 @@ export default function ContactManager() {
               <div className="muted small">{row.address || ''}</div>
             </div>
             <div className="row gap">
-              <button className="btn" onClick={() => shareVCard(row)} aria-label={`Share ${row.name} as vCard`}>
-                Share
-              </button>
-              <button className="btn" onClick={() => startEdit(row)} aria-label={`Edit ${row.name}`}>
-                Edit
-              </button>
-              <button className="btn danger" onClick={() => handleDelete(row.id)} aria-label={`Delete ${row.name}`}>
-                Delete
-              </button>
+              <button className="btn" onClick={() => shareVCard(row)} aria-label={`Share ${row.name} as vCard`}>Share</button>
+              <button className="btn" onClick={() => startEdit(row)} aria-label={`Edit ${row.name}`}>Edit</button>
+              <button className="btn danger" onClick={() => handleDelete(row.id)} aria-label={`Delete ${row.name}`}>Delete</button>
             </div>
           </li>
         ))}
