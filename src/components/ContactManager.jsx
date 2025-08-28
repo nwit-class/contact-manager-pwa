@@ -3,7 +3,6 @@ import React, { useEffect, useRef, useMemo, useState } from 'react';
 import { getContacts, addContact, updateContact, deleteContact } from '../utils/db';
 import { useToast } from '../App';
 
-// --- CSV helpers (simple, handles quoted fields) ---
 function toCSV(rows, columns) {
   const esc = (v) => {
     if (v == null) return '';
@@ -17,31 +16,26 @@ function toCSV(rows, columns) {
 }
 
 function parseCSV(text) {
-  // returns array of objects keyed by header row
   const rows = [];
   let i = 0, field = '', inQuotes = false, row = [];
   const pushField = () => { row.push(field); field = ''; };
   const pushRow = () => { rows.push(row); row = []; };
-
   while (i < text.length) {
     const ch = text[i++];
     if (inQuotes) {
       if (ch === '"') {
-        if (text[i] === '"') { field += '"'; i++; } // escaped quote
-        else { inQuotes = false; }
-      } else { field += ch; }
+        if (text[i] === '"') { field += '"'; i++; } else { inQuotes = false; }
+      } else field += ch;
     } else {
       if (ch === '"') inQuotes = true;
       else if (ch === ',') pushField();
       else if (ch === '\n') { pushField(); pushRow(); }
-      else if (ch === '\r') { /* ignore CR */ }
+      else if (ch === '\r') {}
       else field += ch;
     }
   }
-  // last field/row
   pushField();
   if (row.length > 1 || row[0] !== '') pushRow();
-
   if (rows.length === 0) return [];
   const headers = rows[0].map((h) => (h || '').trim());
   return rows.slice(1).map((r) => {
@@ -61,56 +55,37 @@ export default function ContactManager() {
   const csvInputRef = useRef(null);
 
   useEffect(() => { refresh(); }, []);
-
   const refresh = async () => {
     const all = await getContacts();
     all.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     setContacts(all);
   };
 
-  const onChange = (e) => {
-    const { name, value } = e.target;
-    setForm((f) => ({ ...f, [name]: value }));
-  };
-
+  const onChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
   const clearForm = () => setForm({ name: '', phone: '', email: '', address: '' });
 
   const handleAdd = async (e) => {
     e.preventDefault();
     if (!form.name.trim()) { toast('Name is required', 'warn'); return; }
     await addContact({ ...form });
-    clearForm();
-    toast('Contact added', 'success');
-    refresh();
+    clearForm(); toast('Contact added', 'success'); refresh();
   };
 
   const startEdit = (row) => {
     setEditingId(row.id);
-    setForm({
-      name: row.name || '',
-      phone: row.phone || '',
-      email: row.email || '',
-      address: row.address || '',
-    });
+    setForm({ name: row.name || '', phone: row.phone || '', email: row.email || '', address: row.address || '' });
   };
 
   const handleUpdate = async (e) => {
     e.preventDefault();
     if (!editingId) return;
     await updateContact(editingId, { ...form });
-    setEditingId(null);
-    clearForm();
-    toast('Contact updated', 'success');
-    refresh();
+    setEditingId(null); clearForm(); toast('Contact updated', 'success'); refresh();
   };
 
-  const handleDelete = async (id) => {
-    await deleteContact(id);
-    toast('Contact deleted', 'success');
-    refresh();
-  };
+  const handleDelete = async (id) => { await deleteContact(id); toast('Contact deleted', 'success'); refresh(); };
 
-  // --- Export / Import (JSON) ---
+  // JSON
   const exportJSON = async () => {
     const list = await getContacts();
     const blob = new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' });
@@ -119,7 +94,6 @@ export default function ContactManager() {
     document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);
     toast('Exported JSON', 'info');
   };
-
   const importJSON = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
     try {
@@ -128,20 +102,13 @@ export default function ContactManager() {
       if (!Array.isArray(data)) throw new Error('Invalid JSON');
       for (const c of data) {
         const { id, ...rest } = c || {};
-        if (rest && (rest.name || rest.email || rest.phone || rest.address)) {
-          await addContact(rest);
-        }
+        if (rest.name || rest.email || rest.phone || rest.address) await addContact(rest);
       }
-      await refresh();
-      e.target.value = '';
-      toast('Imported JSON', 'success');
-    } catch (err) {
-      console.error(err);
-      toast('Failed to import JSON', 'error');
-    }
+      await refresh(); e.target.value = ''; toast('Imported JSON', 'success');
+    } catch { toast('Failed to import JSON', 'error'); }
   };
 
-  // --- Export / Import (CSV) ---
+  // CSV
   const exportCSV = async () => {
     const list = await getContacts();
     const cols = ['name', 'phone', 'email', 'address'];
@@ -152,35 +119,20 @@ export default function ContactManager() {
     document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);
     toast('Exported CSV', 'info');
   };
-
   const importCSV = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
     try {
       const text = await file.text();
-      const rows = parseCSV(text); // [{name,phone,email,address}]
+      const rows = parseCSV(text);
       let count = 0;
       for (const r of rows) {
-        const rest = {
-          name: r.name || r.fullname || r.fn || '',
-          phone: r.phone || r.tel || '',
-          email: r.email || '',
-          address: r.address || r.adr || '',
-        };
-        if (rest.name || rest.email || rest.phone || rest.address) {
-          await addContact(rest);
-          count++;
-        }
+        const rest = { name: r.name || r.fullname || r.fn || '', phone: r.phone || r.tel || '', email: r.email || '', address: r.address || r.adr || '' };
+        if (rest.name || rest.email || rest.phone || rest.address) { await addContact(rest); count++; }
       }
-      await refresh();
-      e.target.value = '';
-      toast(`Imported ${count} from CSV`, 'success');
-    } catch (err) {
-      console.error(err);
-      toast('Failed to import CSV', 'error');
-    }
+      await refresh(); e.target.value = ''; toast(`Imported ${count} from CSV`, 'success');
+    } catch { toast('Failed to import CSV', 'error'); }
   };
 
-  // --- Search / filter ---
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return contacts;
@@ -190,12 +142,9 @@ export default function ContactManager() {
     });
   }, [contacts, query]);
 
-  // --- vCard share ---
   function makeVCard(c) {
     const lines = [
-      'BEGIN:VCARD',
-      'VERSION:3.0',
-      `FN:${c.name || ''}`,
+      'BEGIN:VCARD', 'VERSION:3.0', `FN:${c.name || ''}`,
       c.phone ? `TEL;TYPE=CELL:${c.phone}` : '',
       c.email ? `EMAIL;TYPE=INTERNET:${c.email}` : '',
       c.address ? `ADR;TYPE=HOME:;;${String(c.address).replace(/,/g, '\\,')}` : '',
@@ -203,16 +152,13 @@ export default function ContactManager() {
     ].filter(Boolean);
     return lines.join('\r\n');
   }
-
   async function shareVCard(c) {
     const vcf = makeVCard(c);
     const blob = new Blob([vcf], { type: 'text/vcard' });
     const file = new File([blob], `${(c.name || 'contact').replace(/\s+/g, '_')}.vcf`, { type: 'text/vcard' });
     if (navigator.share && navigator.canShare?.({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file], title: c.name || 'Contact', text: 'Contact card' });
-        return;
-      } catch (e) {/* fall through */}
+      try { await navigator.share({ files: [file], title: c.name || 'Contact', text: 'Contact card' }); return; }
+      catch {}
     }
     const url = URL.createObjectURL(file);
     const a = Object.assign(document.createElement('a'), { href: url, download: file.name });
@@ -221,70 +167,41 @@ export default function ContactManager() {
 
   return (
     <section>
-      {/* Top bar: search + JSON/CSV import-export */}
       <div className="card">
         <div className="row gap" style={{ alignItems: 'stretch', flexWrap: 'wrap' }}>
-          <input
-            id="search"
-            name="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search contacts…"
-            aria-label="Search contacts"
-            style={{ flex: 1, minWidth: 220 }}
-          />
-          <button type="button" className="btn" onClick={exportJSON} aria-label="Export contacts to JSON">
-            Export JSON
-          </button>
-          <button type="button" className="btn" onClick={() => jsonInputRef.current?.click()} aria-label="Import contacts from JSON">
-            Import JSON
-          </button>
+          <input id="search" name="search" value={query} onChange={(e) => setQuery(e.target.value)}
+                 placeholder="Search contacts…" aria-label="Search contacts"
+                 style={{ flex: 1, minWidth: 220 }} />
+          <button type="button" className="btn" onClick={exportJSON}>Export JSON</button>
+          <button type="button" className="btn" onClick={() => jsonInputRef.current?.click()}>Import JSON</button>
           <input ref={jsonInputRef} type="file" accept="application/json" onChange={importJSON} style={{ display: 'none' }} />
-
-          <button type="button" className="btn" onClick={exportCSV} aria-label="Export contacts to CSV">
-            Export CSV
-          </button>
-          <button type="button" className="btn" onClick={() => csvInputRef.current?.click()} aria-label="Import contacts from CSV">
-            Import CSV
-          </button>
+          <button type="button" className="btn" onClick={exportCSV}>Export CSV</button>
+          <button type="button" className="btn" onClick={() => csvInputRef.current?.click()}>Import CSV</button>
           <input ref={csvInputRef} type="file" accept=".csv,text/csv" onChange={importCSV} style={{ display: 'none' }} />
         </div>
       </div>
 
-      {/* Form */}
       <form className="card" onSubmit={editingId ? handleUpdate : handleAdd} aria-label="Contact form">
         <div className="grid">
-          <div className="field">
-            <label htmlFor="name">Name *</label>
+          <div className="field"><label htmlFor="name">Name *</label>
             <input id="name" name="name" value={form.name} onChange={onChange} placeholder="Jane Doe" required />
           </div>
-          <div className="field">
-            <label htmlFor="phone">Phone</label>
+          <div className="field"><label htmlFor="phone">Phone</label>
             <input id="phone" name="phone" value={form.phone} onChange={onChange} placeholder="(555) 123-4567" />
           </div>
-          <div className="field">
-            <label htmlFor="email">Email</label>
+          <div className="field"><label htmlFor="email">Email</label>
             <input id="email" name="email" type="email" value={form.email} onChange={onChange} placeholder="jane@example.com" />
           </div>
-          <div className="field field-wide">
-            <label htmlFor="address">Address</label>
+          <div className="field field-wide"><label htmlFor="address">Address</label>
             <input id="address" name="address" value={form.address} onChange={onChange} placeholder="123 Main St, City, ST" />
           </div>
         </div>
-
         <div className="row gap">
-          <button className="btn primary" type="submit">
-            {editingId ? 'Update' : 'Add'}
-          </button>
-          {editingId && (
-            <button type="button" className="btn" onClick={() => { setEditingId(null); clearForm(); }}>
-              Cancel
-            </button>
-          )}
+          <button className="btn primary" type="submit">{editingId ? 'Update' : 'Add'}</button>
+          {editingId && <button type="button" className="btn" onClick={() => { setEditingId(null); clearForm(); }}>Cancel</button>}
         </div>
       </form>
 
-      {/* List */}
       <ul className="list" aria-label="Contacts list">
         {filtered.map((row) => (
           <li key={row.id} className="list-row">
@@ -294,16 +211,14 @@ export default function ContactManager() {
               <div className="muted small">{row.address || ''}</div>
             </div>
             <div className="row gap">
-              <button className="btn" onClick={() => shareVCard(row)} aria-label={`Share ${row.name} as vCard`}>Share</button>
-              <button className="btn" onClick={() => startEdit(row)} aria-label={`Edit ${row.name}`}>Edit</button>
-              <button className="btn danger" onClick={() => handleDelete(row.id)} aria-label={`Delete ${row.name}`}>Delete</button>
+              <button className="btn" onClick={() => shareVCard(row)}>Share</button>
+              <button className="btn" onClick={() => startEdit(row)}>Edit</button>
+              <button className="btn danger" onClick={() => handleDelete(row.id)}>Delete</button>
             </div>
           </li>
         ))}
         {filtered.length === 0 && (
-          <li className="empty">
-            {query ? 'No contacts match your search.' : 'No contacts yet. Add your first one above.'}
-          </li>
+          <li className="empty">{query ? 'No contacts match your search.' : 'No contacts yet. Add your first one above.'}</li>
         )}
       </ul>
     </section>

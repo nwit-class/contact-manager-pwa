@@ -3,6 +3,7 @@ import React, { useEffect, useState, createContext, useContext, useCallback } fr
 import ContactManager from './components/ContactManager';
 
 const ToastContext = createContext((msg, type) => {});
+export function useToast() { return useContext(ToastContext); }
 
 function UpdateBanner({ onReload }) {
   const [show, setShow] = useState(false);
@@ -20,29 +21,21 @@ function UpdateBanner({ onReload }) {
   );
 }
 
-function ToastHost() {
+function ToastHost({ children }) {
   const [items, setItems] = useState([]); // {id, text, type}
   const push = useCallback((text, type = 'info') => {
     const id = Math.random().toString(36).slice(2);
     setItems((it) => [...it, { id, text, type }]);
-    setTimeout(() => {
-      setItems((it) => it.filter((x) => x.id !== id));
-    }, 3000);
+    setTimeout(() => setItems((it) => it.filter((x) => x.id !== id)), 3000);
   }, []);
   return (
     <ToastContext.Provider value={push}>
       <div className="toasts">
-        {items.map((t) => (
-          <div key={t.id} className={`toast ${t.type}`}>{t.text}</div>
-        ))}
+        {items.map((t) => <div key={t.id} className={`toast ${t.type}`}>{t.text}</div>)}
       </div>
-      {/* children via context consumer in App below */}
+      {children}
     </ToastContext.Provider>
   );
-}
-
-export function useToast() {
-  return useContext(ToastContext);
 }
 
 export default function App() {
@@ -50,11 +43,7 @@ export default function App() {
   const [canInstall, setCanInstall] = useState(false);
 
   useEffect(() => {
-    const handler = (e) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-      setCanInstall(true);
-    };
+    const handler = (e) => { e.preventDefault(); setDeferredPrompt(e); setCanInstall(true); };
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
@@ -74,9 +63,7 @@ export default function App() {
           <h1>Contact Manager</h1>
           <div className="header-actions">
             {canInstall && (
-              <button className="btn" onClick={handleInstall} aria-label="Install app">
-                Install App
-              </button>
+              <button className="btn" onClick={handleInstall} aria-label="Install app">Install App</button>
             )}
           </div>
         </header>
@@ -87,10 +74,9 @@ export default function App() {
           <ContactManager />
         </main>
 
-        <footer className="app-footer" aria-label="App version">
-          v1.0.3
-        </footer>
+        <footer className="app-footer" aria-label="App version">v1.0.3</footer>
       </div>
     </ToastHost>
   );
 }
+
