@@ -1,5 +1,4 @@
 @echo off
-REM deploy.bat - builds, commits, and pushes to your GitHub repo
 cd /d "%~dp0"
 
 echo.
@@ -12,7 +11,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo 📦 Committing build and pushing to origin/main...
+echo 📦 Committing and pushing to origin/main...
 call git add -A
 call git commit -m "Deploy: latest changes"
 call git push -u origin main
