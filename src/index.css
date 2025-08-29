@@ -137,3 +137,27 @@ input:focus { border-color: var(--accent); }
 .toast.success { border-color: #1e3a24; background: #0e1912; }
 .toast.error   { border-color: #5a1a1a; background: #1a0f10; }
 .toast.warn    { border-color: #4a3a1a; background: #19150e; }
+/* Favorites star */
+.star {
+  all: unset;
+  cursor: pointer;
+  margin-right: 8px;
+  color: #8892a6;
+  font-size: 18px;
+  line-height: 1;
+}
+.star.on { color: #f5c518; }
+
+/* Tags */
+.tags { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #2b3142);
+  background: #0f1422;
+  font-size: 12px;
+  color: var(--text, #e5e7ef);
+}
+
+/* Notes block */
+.notes { margin-top: 4px; }
