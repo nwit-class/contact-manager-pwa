@@ -1,31 +1,36 @@
-// functions/api/register.js (TEMP STUB)
-function corsHeaders(req) {
-  const origin = req.headers.get('Origin') || '';
-  const h = new Headers();
-  try {
-    const u = new URL(origin);
-    if (
-      u.hostname === 'localhost' ||
-      u.hostname === '127.0.0.1' ||
-      u.origin === 'https://contact-manager-pwa-ab6.pages.dev'
-    ) {
-      h.set('Access-Control-Allow-Origin', origin);
-      h.set('Vary', 'Origin');
-    }
-  } catch {}
-  h.set('Access-Control-Allow-Credentials', 'true');
-  h.set('Access-Control-Allow-Headers', 'content-type');
-  h.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  return h;
-}
+﻿import {
+  okJSON, errJSON, corsOptions, json,
+  getUserByEmail, createUser, createSession, setCookieFor
+} from "./_common.js";
 
 export function onRequestOptions({ request }) {
-  return new Response(null, { status: 204, headers: corsHeaders(request) });
+  return corsOptions(request);
 }
 
-export async function onRequestPost({ request }) {
-  const h = corsHeaders(request);
-  h.set('content-type', 'application/json');
-  return new Response(JSON.stringify({ ok: true, stage: 'register-stub' }), { status: 200, headers: h });
-}
+export async function onRequestPost({ request, env }) {
+  try {
+    if (!env?.DB) return errJSON(request, 500, "missing-DB-binding");
 
+    const body = await json(request);
+    if (!body || typeof body !== "object") return errJSON(request, 400, "bad-json");
+    const { email, password } = body;
+    if (!email || !password) return errJSON(request, 400, "email-and-password-required");
+
+    const existing = await getUserByEmail(env.DB, email);
+    if (existing) return errJSON(request, 409, "user-already-exists");
+
+    const ok = await createUser(env.DB, email, password);
+    if (!ok) return errJSON(request, 500, "create-user-failed");
+
+    const u = await getUserByEmail(env.DB, email);
+    if (!u) return errJSON(request, 500, "user-not-found-after-insert");
+
+    const ttl = Number(env.SESSION_TTL_DAYS || 30);
+    const sess = await createSession(env.DB, u.id, ttl);
+
+    const init = setCookieFor(request, {}, "session", sess.token, { maxAge: ttl * 86400 });
+    return okJSON(request, { ok: true, userId: u.id }, init);
+  } catch (e) {
+    return errJSON(request, 500, `server-error:${e?.message||"unknown"}`);
+  }
+}
