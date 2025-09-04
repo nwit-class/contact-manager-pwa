@@ -19,41 +19,40 @@ function corsHeadersFor(req) {
   const headers = new Headers();
 
   if (isAllowedOrigin(origin)) {
-    headers.set('Access-Control-Allow-Origin', origin); // must echo origin when using credentials
+    headers.set('Access-Control-Allow-Origin', origin); // echo for credentials
     headers.set('Vary', 'Origin');
   }
-
   headers.set('Access-Control-Allow-Credentials', 'true');
   headers.set('Access-Control-Allow-Headers', 'content-type');
   headers.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   return headers;
 }
 
-}
-
 export function corsOptions(request) {
-  return new Response(null, {
-    status: 204,
-    headers: corsHeadersFor(request),
-  });
+  return new Response(null, { status: 204, headers: corsHeadersFor(request) });
 }
 
 export function okJSON(request, data, init = {}) {
   const h = corsHeadersFor(request);
   h.set('content-type', 'application/json');
-  if (init.headers) {
-    for (const [k, v] of Object.entries(init.headers)) h.set(k, v);
-  }
+  if (init.headers) for (const [k, v] of Object.entries(init.headers)) h.set(k, v);
   return new Response(JSON.stringify(data), { status: 200, headers: h });
 }
 
 export function errJSON(request, status, message, init = {}) {
   const h = corsHeadersFor(request);
   h.set('content-type', 'application/json');
-  if (init.headers) {
-    for (const [k, v] of Object.entries(init.headers)) h.set(k, v);
-  }
+  if (init.headers) for (const [k, v] of Object.entries(init.headers)) h.set(k, v);
   return new Response(JSON.stringify({ error: message }), { status, headers: h });
+}
+
+/** Parse JSON body safely (nice error if malformed) */
+export async function json(request) {
+  try {
+    return await request.json();
+  } catch {
+    throw new Error('bad-json');
+  }
 }
 
 /** Cookie helpers */
