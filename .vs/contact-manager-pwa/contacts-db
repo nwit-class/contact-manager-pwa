@@ -1,0 +1,33 @@
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL UNIQUE,
+  password_salt TEXT NOT NULL,
+  password_dk TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS contacts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  uuid TEXT NOT NULL,
+  name TEXT,
+  email TEXT,
+  phone TEXT,
+  address TEXT,
+  tags TEXT,
+  notes TEXT,
+  favorite INTEGER DEFAULT 0,
+  created_at INTEGER,
+  updated_at INTEGER,
+  deleted_at INTEGER,
+  UNIQUE(user_id, uuid) ON CONFLICT REPLACE
+);
+
+CREATE INDEX IF NOT EXISTS idx_contacts_user_updated ON contacts(user_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_contacts_user_deleted ON contacts(user_id, deleted_at);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);

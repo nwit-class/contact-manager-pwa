@@ -1,3 +1,4 @@
+// vite.config.js
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
@@ -7,8 +8,8 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      injectRegister: 'auto',
-      devOptions: { enabled: false }, // important: no SW in dev/build scan
+      devOptions: { enabled: false }, // ← disable PWA in dev
+      includeAssets: ['favicon.ico', 'robots.txt', 'icons/icon-192x192.png', 'icons/icon-512x512.png'],
       manifest: {
         name: 'Contact Manager PWA',
         short_name: 'Contacts',
@@ -18,12 +19,12 @@ export default defineConfig({
         display: 'standalone',
         icons: [
           { src: 'icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'icons/icon-256x256.png', sizes: '256x256', type: 'image/png' },
           { src: 'icons/icon-512x512.png', sizes: '512x512', type: 'image/png' }
-        ]
-      }
-    })
-  ]
+        ],
+      },
+    }),
+  ],
 });
+
 
 

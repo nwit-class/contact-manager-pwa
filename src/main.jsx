@@ -1,8 +1,7 @@
 // src/main.jsx
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import App from './App';
-import './index.css';
+import App from './App.jsx';
 
-const rootEl = document.getElementById('root');
-createRoot(rootEl).render(<App />);
+const el = document.getElementById('root');
+createRoot(el).render(<App />);
