@@ -2,7 +2,6 @@
 function corsHeaders(req) {
   const origin = req.headers.get('Origin') || '';
   const h = new Headers();
-  // allow any localhost (any port) + your Pages origin
   try {
     const u = new URL(origin);
     if (
@@ -27,8 +26,5 @@ export function onRequestOptions({ request }) {
 export function onRequestGet({ request }) {
   const h = corsHeaders(request);
   h.set('content-type', 'application/json');
-  return new Response(JSON.stringify({ ok: true, where: 'cloudflare-pages-functions' }), {
-    status: 200,
-    headers: h,
-  });
+  return new Response(JSON.stringify({ ok: true, where: 'pages-functions' }), { status: 200, headers: h });
 }

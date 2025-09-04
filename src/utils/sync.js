@@ -3,7 +3,7 @@ import { initDB, getContacts, addContact } from './db';
 
 // src/utils/sync.js (top of file)
 const PAGES = 'https://contact-manager-pwa-ab6.pages.dev';
-export const API =
+const API =
   location.hostname === 'localhost' || location.hostname === '127.0.0.1'
     ? `${PAGES}/api`
     : '/api';
