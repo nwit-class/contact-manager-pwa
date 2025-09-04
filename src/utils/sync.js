@@ -1,15 +1,13 @@
 // src/utils/sync.js
 import { initDB, getContacts, addContact } from './db';
 
-// Your deployed Cloudflare Pages origin:
+// src/utils/sync.js (top of file)
 const PAGES = 'https://contact-manager-pwa-ab6.pages.dev';
-
-// When running on localhost, call the deployed API on Pages.
-// When running on Pages, use same-origin /api.
-const API =
+export const API =
   location.hostname === 'localhost' || location.hostname === '127.0.0.1'
     ? `${PAGES}/api`
     : '/api';
+
 
 const lastKey = 'lastSyncAt';
 const getLast = () => Number(localStorage.getItem(lastKey) || '0');
