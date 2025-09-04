@@ -1,23 +1,31 @@
 // functions/api/register.js
-import { badRequest, hashPassword, createSession, setSessionCookie } from '../_lib.js';
+import {
+  okJSON, errJSON, corsOptions,
+  getUserByEmail, createUser, createSession, setCookie
+} from '../_lib.js';
 
-export async function onRequestPost({ request, env }) {
-  const { email, password } = await request.json().catch(() => ({}));
-  if (!email || !password) return badRequest('Email and password required');
+export async function onRequestOptions() {
+  return corsOptions();
+}
 
-  const exists = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
-  if (exists) return badRequest('Email already registered');
+export async function onRequestPost(context) {
+  const { request, env } = context;
+  try {
+    const { email, password } = await request.json();
+    if (!email || !password) return errJSON(400, 'email and password required');
 
-  const { salt, dk } = await hashPassword(password);
-  const now = Date.now();
-  const res = await env.DB
-    .prepare('INSERT INTO users (email, password_salt, password_dk, created_at) VALUES (?, ?, ?, ?)')
-    .bind(email, salt, dk, now).run();
+    const existing = await getUserByEmail(env.DB, email);
+    if (existing) return errJSON(409, 'user already exists');
 
-  const userId = res.meta.last_row_id;
-  const { token, expiresAt } = await createSession(env, userId);
+    const ok = await createUser(env.DB, email, password);
+    if (!ok) return errJSON(500, 'failed to create user');
 
-  return new Response(JSON.stringify({ ok: true, email }), {
-    headers: { 'content-type': 'application/json', 'set-cookie': setSessionCookie(token, expiresAt) },
-  });
+    const ttl = Number(env.SESSION_TTL_DAYS || 30);
+    const sess = await createSession(env.DB, (await getUserByEmail(env.DB, email)).id, ttl);
+
+    const init = setCookie({}, 'session', sess.token, { maxAge: ttl * 86400 });
+    return okJSON({ ok: true }, init);
+  } catch (e) {
+    return errJSON(500, 'server error');
+  }
 }

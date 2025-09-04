@@ -1,9 +1,19 @@
 // functions/api/logout.js
-import { destroySession, clearSessionCookie } from '../_lib.js';
+import { okJSON, errJSON, corsOptions, deleteSession, readCookie, setCookie } from '../_lib.js';
 
-export async function onRequestPost({ request, env }) {
-  await destroySession(env, request);
-  return new Response(JSON.stringify({ ok: true }), {
-    headers: { 'content-type': 'application/json', 'set-cookie': clearSessionCookie },
-  });
+export async function onRequestOptions() {
+  return corsOptions();
 }
+
+export async function onRequestPost(context) {
+  const { request, env } = context;
+  try {
+    const token = readCookie(request, 'session');
+    if (token) await deleteSession(env.DB, token);
+    const init = setCookie({}, 'session', '', { maxAge: 0 }); // clear cookie
+    return okJSON({ ok: true }, init);
+  } catch {
+    return errJSON(500, 'server error');
+  }
+}
+
