@@ -1,29 +1,34 @@
 // functions/api/_common.js
 
-/** Allowed origins for CORS with credentials */
-const ALLOWED = new Set([
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:5175',
-  'http://localhost:5176',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:5174',
-  'http://127.0.0.1:5175',
-  'http://127.0.0.1:5176',
-  'https://contact-manager-pwa-ab6.pages.dev',
-]);
+/** Allow localhost (any port) + your Pages origin for credentialed CORS */
+const PAGES_ORIGIN = 'https://contact-manager-pwa-ab6.pages.dev';
+
+function isAllowedOrigin(origin) {
+  try {
+    const u = new URL(origin);
+    if (u.origin === PAGES_ORIGIN) return true;
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return true; // any port
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 function corsHeadersFor(req) {
   const origin = req.headers.get('Origin') || '';
   const headers = new Headers();
-  if (ALLOWED.has(origin)) {
-    headers.set('Access-Control-Allow-Origin', origin);
+
+  if (isAllowedOrigin(origin)) {
+    headers.set('Access-Control-Allow-Origin', origin); // must echo origin when using credentials
     headers.set('Vary', 'Origin');
   }
+
   headers.set('Access-Control-Allow-Credentials', 'true');
   headers.set('Access-Control-Allow-Headers', 'content-type');
   headers.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   return headers;
+}
+
 }
 
 export function corsOptions(request) {
