@@ -1,457 +1,118 @@
 // src/components/ContactManager.jsx
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  getActiveContacts,
-  getDeletedContacts,
-  addContact,
-  updateContact,
-  softDeleteContact,
-  restoreContact,
-  hardDeleteContact,
-  emptyTrash,
+  getAllContacts,
+  upsertContact,
+  markDeleted
 } from '../utils/db';
-import { useToast } from '../App';
-
-/* ---------- CSV helpers ---------- */
-function toCSV(rows, columns) {
-  const esc = (v) => {
-    if (v == null) return '';
-    const s = String(v);
-    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-    return s;
-  };
-  const header = columns.join(',');
-  const body = rows.map((r) => columns.map((c) => esc(r[c])).join(',')).join('\n');
-  return `${header}\n${body}`;
-}
-
-function parseCSV(text) {
-  const rows = [];
-  let i = 0, field = '', inQuotes = false, row = [];
-  const pushField = () => { row.push(field); field = ''; };
-  const pushRow = () => { rows.push(row); row = []; };
-  while (i < text.length) {
-    const ch = text[i++];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (text[i] === '"') { field += '"'; i++; } else { inQuotes = false; }
-      } else field += ch;
-    } else {
-      if (ch === '"') inQuotes = true;
-      else if (ch === ',') pushField();
-      else if (ch === '\n') { pushField(); pushRow(); }
-      else if (ch === '\r') {}
-      else field += ch;
-    }
-  }
-  pushField();
-  if (row.length > 1 || row[0] !== '') pushRow();
-  if (rows.length === 0) return [];
-  const headers = rows[0].map((h) => (h || '').trim());
-  return rows.slice(1).map((r) => {
-    const obj = {};
-    headers.forEach((h, idx) => { if (h) obj[h.toLowerCase()] = r[idx] ?? ''; });
-    return obj;
-  });
-}
-
-/* ---------- vCard share ---------- */
-function makeVCard(c) {
-  const lines = [
-    'BEGIN:VCARD', 'VERSION:3.0',
-    `FN:${c.name || ''}`,
-    c.phone ? `TEL;TYPE=CELL:${c.phone}` : '',
-    c.email ? `EMAIL;TYPE=INTERNET:${c.email}` : '',
-    c.address ? `ADR;TYPE=HOME:;;${String(c.address).replace(/,/g, '\\,')}` : '',
-    'END:VCARD',
-  ].filter(Boolean);
-  return lines.join('\r\n');
-}
+import { syncNow } from '../utils/sync';
 
 export default function ContactManager() {
-  const toast = useToast();
+  const empty = { id: null, name: '', email: '', phone: '', address: '', notes: '', tags: [] };
+  const [contacts, setContacts] = useState([]);
+  const [form, setForm] = useState(empty);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
 
-  // Data
-  const [active, setActive] = useState([]);
-  const [trash, setTrash] = useState([]);
+  useEffect(() => { load(); }, []);
+  async function load() {
+    setContacts(await getAllContacts());
+  }
 
-  // Form + UI state
-  const [form, setForm] = useState({
-    name: '', phone: '', email: '', address: '',
-    tagsInput: '', notes: ''
-  });
-  const [editingId, setEditingId] = useState(null);
-  const [query, setQuery] = useState('');
-  const [favoritesOnly, setFavoritesOnly] = useState(false);
-  const [sortBy, setSortBy] = useState('name-asc'); // name-asc | name-desc | recent-desc
-  const [showTrash, setShowTrash] = useState(false);
+  function onChange(e) {
+    const { name, value } = e.target;
+    setForm(f => ({ ...f, [name]: value }));
+  }
 
-  const jsonInputRef = useRef(null);
-  const csvInputRef = useRef(null);
-
-  const refresh = async () => {
-    const [a, t] = await Promise.all([getActiveContacts(), getDeletedContacts()]);
-    // ensure shapes from older records
-    const norm = (r) => ({ favorite: false, tags: [], notes: '', ...r });
-    setActive(a.map(norm));
-    setTrash(t.map(norm));
-  };
-
-  useEffect(() => { refresh(); }, []);
-
-  const onChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
-  const clearForm = () => setForm({ name: '', phone: '', email: '', address: '', tagsInput: '', notes: '' });
-
-  const handleAdd = async (e) => {
-    e.preventDefault();
-    if (!form.name.trim()) { toast('Name is required', 'warn'); return; }
-    const tags = (form.tagsInput || '').split(',').map(t => t.trim()).filter(Boolean);
-    await addContact({
-      name: form.name.trim(),
-      phone: form.phone.trim(),
-      email: form.email.trim(),
-      address: form.address.trim(),
-      tags,
-      notes: form.notes.trim(),
-    });
-    clearForm(); toast('Contact added', 'success'); refresh();
-  };
-
-  const startEdit = (row) => {
-    setEditingId(row.id);
-    setForm({
-      name: row.name || '',
-      phone: row.phone || '',
-      email: row.email || '',
-      address: row.address || '',
-      tagsInput: (row.tags || []).join(', '),
-      notes: row.notes || '',
-    });
-  };
-
-  const handleUpdate = async (e) => {
-    e.preventDefault();
-    if (!editingId) return;
-    const tags = (form.tagsInput || '').split(',').map(t => t.trim()).filter(Boolean);
-    await updateContact(editingId, {
-      name: form.name.trim(),
-      phone: form.phone.trim(),
-      email: form.email.trim(),
-      address: form.address.trim(),
-      tags,
-      notes: form.notes.trim(),
-    });
-    setEditingId(null); clearForm(); toast('Contact updated', 'success'); refresh();
-  };
-
-  // Confirm + Undo (soft delete)
-  const handleDelete = async (row) => {
-    const ok = window.confirm(`Delete "${row.name || 'this contact'}"?\nIt will go to Trash and can be restored.`);
-    if (!ok) return;
-    await softDeleteContact(row.id);
-    refresh();
-
-    // Undo action (soft restore)
-    const undo = async () => { await restoreContact(row.id); toast('Restored', 'success'); refresh(); };
-    // If your useToast supports actions, great. If not, show a second button or just inform.
-    toast('Moved to Trash. Undo?', 'info', { actionLabel: 'Undo', action: undo });
-  };
-
-  const handleRestore = async (row) => {
-    await restoreContact(row.id);
-    toast('Restored from Trash', 'success');
-    refresh();
-  };
-
-  const handleHardDelete = async (row) => {
-    const ok = window.confirm(`Permanently delete "${row.name || 'this contact'}"?\nThis cannot be undone.`);
-    if (!ok) return;
-    await hardDeleteContact(row.id);
-    toast('Deleted permanently', 'success');
-    refresh();
-  };
-
-  const handleEmptyTrash = async () => {
-    if (trash.length === 0) { toast('Trash is already empty', 'info'); return; }
-    const ok = window.confirm(`Empty Trash (${trash.length} contacts)? This cannot be undone.`);
-    if (!ok) return;
-    await emptyTrash();
-    toast('Trash emptied', 'success');
-    refresh();
-  };
-
-  const toggleFavorite = async (row) => {
-    await updateContact(row.id, { favorite: !row.favorite });
-    refresh();
-  };
-
-  /* ---------- Export / Import JSON ---------- */
-  const exportJSON = async () => {
-    const data = [...active, ...trash]; // full backup includes trash
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement('a'), { href: url, download: 'contacts-backup.json' });
-    document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-    toast('Exported JSON', 'info');
-  };
-
-  const importJSON = async (e) => {
-    const file = e.target.files?.[0]; if (!file) return;
+  async function onSave() {
+    setBusy(true);
     try {
-      const text = await file.text();
-      const data = JSON.parse(text);
-      if (!Array.isArray(data)) throw new Error('Invalid JSON');
-      for (const c of data) {
-        const { id, ...rest } = c || {};
-        if (rest && (rest.name || rest.email || rest.phone || rest.address || rest.tags || rest.notes)) {
-          await addContact(rest);
-        }
-      }
-      await refresh(); e.target.value = ''; toast('Imported JSON', 'success');
-    } catch { toast('Failed to import JSON', 'error'); }
-  };
+      await upsertContact(form);
+      setForm(empty);
+      await load();
+      setMsg('Saved locally (dirty). Click Sync now to push.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
-  /* ---------- Export / Import CSV ---------- */
-  const exportCSV = async () => {
-    const list = [...active, ...trash];
-    const cols = ['name', 'phone', 'email', 'address', 'favorite', 'tags', 'notes', 'deletedAt'];
-    const flattened = list.map((r) => ({
-      ...r,
-      tags: (r.tags || []).join('; ')
-    }));
-    const csv = toCSV(flattened, cols);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement('a'), { href: url, download: 'contacts.csv' });
-    document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-    toast('Exported CSV', 'info');
-  };
+  async function onEdit(row) {
+    setForm(row);
+  }
 
-  const importCSV = async (e) => {
-    const file = e.target.files?.[0]; if (!file) return;
+  async function onDelete(row) {
+    setBusy(true);
     try {
-      const text = await file.text();
-      const rows = parseCSV(text);
-      let count = 0;
-      for (const r of rows) {
-        const tags = (r.tags || r.tag || '')
-          .split(/[,;]/)
-          .map(t => t.trim())
-          .filter(Boolean);
-        const rest = {
-          name: r.name || r.fullname || r.fn || '',
-          phone: r.phone || r.tel || '',
-          email: r.email || '',
-          address: r.address || r.adr || '',
-          favorite: String(r.favorite).toLowerCase() === 'true',
-          notes: r.notes || '',
-          tags
-        };
-        if (String(r.deletedat || '').trim()) {
-          // If CSV row was marked deleted, keep it in active import but not deleted
-          // (choose your policy; here we import as active)
-        }
-        if (rest.name || rest.email || rest.phone || rest.address || rest.notes || rest.tags?.length) {
-          await addContact(rest);
-          count++;
-        }
-      }
-      await refresh(); e.target.value = ''; toast(`Imported ${count} from CSV`, 'success');
-    } catch { toast('Failed to import CSV', 'error'); }
-  };
-
-  /* ---------- Share vCard ---------- */
-  const shareVCard = async (c) => {
-    const vcf = makeVCard(c);
-    const blob = new Blob([vcf], { type: 'text/vcard' });
-    const file = new File([blob], `${(c.name || 'contact').replace(/\s+/g, '_')}.vcf`, { type: 'text/vcard' });
-    if (navigator.share && navigator.canShare?.({ files: [file] })) {
-      try { await navigator.share({ files: [file], title: c.name || 'Contact', text: 'Contact card' }); return; }
-      catch {}
+      await markDeleted(row.id ?? row.uuid);
+      await load();
+      setMsg('Marked deleted locally. Click Sync now to push.');
+    } finally {
+      setBusy(false);
     }
-    const url = URL.createObjectURL(file);
-    const a = Object.assign(document.createElement('a'), { href: url, download: file.name });
-    document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-  };
+  }
 
-  /* ---------- Search, filter, sort ---------- */
-  const filteredActive = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    let list = active;
-    if (favoritesOnly) list = list.filter(c => c.favorite);
-    if (q) {
-      list = list.filter((c) => {
-        const hay = [
-          c.name, c.email, c.phone, c.address,
-          (c.tags || []).join(' '), c.notes
-        ].join(' ').toLowerCase();
-        return hay.includes(q);
-      });
+  async function onSync() {
+    setBusy(true);
+    setMsg('Syncing…');
+    try {
+      const res = await syncNow();
+      await load();
+      setMsg(`Synced! Pushed ${res.pushed}, pulled ${res.pulled}.`);
+    } catch (e) {
+      setMsg('Sync failed: ' + (e?.message || 'unknown'));
+    } finally {
+      setBusy(false);
     }
-    if (sortBy === 'name-asc') list = [...list].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    if (sortBy === 'name-desc') list = [...list].sort((a, b) => (b.name || '').localeCompare(a.name || ''));
-    if (sortBy === 'recent-desc') list = [...list].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    return list;
-  }, [active, query, favoritesOnly, sortBy]);
-
-  const filteredTrash = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    let list = trash;
-    if (q) {
-      list = list.filter((c) => {
-        const hay = [
-          c.name, c.email, c.phone, c.address,
-          (c.tags || []).join(' '), c.notes
-        ].join(' ').toLowerCase();
-        return hay.includes(q);
-      });
-    }
-    if (sortBy.startsWith('name-')) {
-      const asc = sortBy === 'name-asc';
-      list = [...list].sort((a, b) => (asc ? (a.name || '').localeCompare(b.name || '') : (b.name || '').localeCompare(a.name || '')));
-    } else if (sortBy === 'recent-desc') {
-      list = [...list].sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0));
-    }
-    return list;
-  }, [trash, query, sortBy]);
-
-  const list = showTrash ? filteredTrash : filteredActive;
+  }
 
   return (
-    <section>
-      {/* Top bar */}
-      <div className="card">
-        <div className="row gap" style={{ alignItems: 'stretch', flexWrap: 'wrap' }}>
-          <input
-            id="search" name="search" value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={`Search ${showTrash ? 'Trash' : 'Contacts'}…`}
-            aria-label="Search contacts"
-            style={{ flex: 1, minWidth: 260 }}
-          />
+    <div className="p-4 max-w-3xl mx-auto">
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <h1 className="text-2xl font-semibold">Contact Manager</h1>
+        <button
+          className="px-3 py-2 rounded-lg border"
+          onClick={onSync}
+          disabled={busy}
+          title="Push local changes and pull server updates"
+        >
+          {busy ? 'Syncing…' : 'Sync now'}
+        </button>
+      </div>
 
-          <select aria-label="Sort contacts" value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="btn">
-            <option value="name-asc">Sort: Name A→Z</option>
-            <option value="name-desc">Sort: Name Z→A</option>
-            <option value="recent-desc">Sort: Most recent</option>
-          </select>
+      {msg && <div className="mb-3 text-sm opacity-80">{msg}</div>}
 
-          {!showTrash && (
-            <label className="btn" style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-              <input type="checkbox" checked={favoritesOnly} onChange={(e) => setFavoritesOnly(e.target.checked)} />
-              Favorites
-            </label>
-          )}
-
-          <button type="button" className={`btn ${showTrash ? '' : 'primary'}`} onClick={() => setShowTrash(false)}>
-            Contacts
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
+        <input className="border p-2 rounded" name="name"    placeholder="Name"    value={form.name}    onChange={onChange} />
+        <input className="border p-2 rounded" name="email"   placeholder="Email"   value={form.email}   onChange={onChange} />
+        <input className="border p-2 rounded" name="phone"   placeholder="Phone"   value={form.phone}   onChange={onChange} />
+        <input className="border p-2 rounded" name="address" placeholder="Address" value={form.address} onChange={onChange} />
+        <textarea className="border p-2 rounded md:col-span-2" name="notes" placeholder="Notes" value={form.notes} onChange={onChange} />
+        <div className="flex gap-2">
+          <button className="px-3 py-2 rounded-lg border" onClick={onSave} disabled={busy}>
+            {form.id ? 'Update (local)' : 'Add (local)'}
           </button>
-          <button type="button" className={`btn ${showTrash ? 'primary' : ''}`} onClick={() => setShowTrash(true)}>
-            Trash ({trash.length})
+          <button className="px-3 py-2 rounded-lg border" onClick={() => setForm(empty)} disabled={busy}>
+            Clear
           </button>
-          {showTrash && (
-            <button type="button" className="btn danger" onClick={handleEmptyTrash}>Empty Trash</button>
-          )}
-
-          <button type="button" className="btn" onClick={exportJSON}>Export JSON</button>
-          <button type="button" className="btn" onClick={() => jsonInputRef.current?.click()}>Import JSON</button>
-          <input ref={jsonInputRef} type="file" accept="application/json" onChange={importJSON} style={{ display: 'none' }} />
-
-          <button type="button" className="btn" onClick={exportCSV}>Export CSV</button>
-          <button type="button" className="btn" onClick={() => csvInputRef.current?.click()}>Import CSV</button>
-          <input ref={csvInputRef} type="file" accept=".csv,text/csv" onChange={importCSV} style={{ display: 'none' }} />
         </div>
       </div>
 
-      {/* Form (hidden in Trash view) */}
-      {!showTrash && (
-        <form className="card" onSubmit={editingId ? handleUpdate : handleAdd} aria-label="Contact form">
-          <div className="grid">
-            <div className="field">
-              <label htmlFor="name">Name *</label>
-              <input id="name" name="name" value={form.name} onChange={onChange} placeholder="Jane Doe" required />
-            </div>
-            <div className="field">
-              <label htmlFor="phone">Phone</label>
-              <input id="phone" name="phone" value={form.phone} onChange={onChange} placeholder="(555) 123-4567" />
-            </div>
-            <div className="field">
-              <label htmlFor="email">Email</label>
-              <input id="email" name="email" type="email" value={form.email} onChange={onChange} placeholder="jane@example.com" />
-            </div>
-            <div className="field field-wide">
-              <label htmlFor="address">Address</label>
-              <input id="address" name="address" value={form.address} onChange={onChange} placeholder="123 Main St, City, ST" />
-            </div>
-            <div className="field">
-              <label htmlFor="tagsInput">Tags</label>
-              <input id="tagsInput" name="tagsInput" value={form.tagsInput} onChange={onChange} placeholder="family, work, vip" />
-            </div>
-            <div className="field field-wide">
-              <label htmlFor="notes">Notes</label>
-              <textarea id="notes" name="notes" value={form.notes} onChange={onChange} placeholder="Birthday, preferences, etc." rows={3} />
-            </div>
-          </div>
-
-          <div className="row gap">
-            <button className="btn primary" type="submit">{editingId ? 'Update' : 'Add'}</button>
-            {editingId && <button type="button" className="btn" onClick={() => { setEditingId(null); clearForm(); }}>Cancel</button>}
-          </div>
-        </form>
-      )}
-
-      {/* List */}
-      <ul className="list" aria-label={showTrash ? 'Trash list' : 'Contacts list'}>
-        {list.map((row) => (
-          <li key={row.id} className="list-row">
-            <div className="who">
-              <div className="name">
-                {!showTrash && (
-                  <button
-                    className={`star ${row.favorite ? 'on' : ''}`}
-                    title={row.favorite ? 'Unfavorite' : 'Favorite'}
-                    onClick={() => toggleFavorite(row)}
-                    aria-label={row.favorite ? `Unfavorite ${row.name}` : `Favorite ${row.name}`}
-                  >
-                    ★
-                  </button>
-                )}
-                {row.name}
+      <ul className="divide-y">
+        {contacts.map(row => (
+          <li key={row.id ?? row.uuid} className="py-2 flex items-center justify-between">
+            <div>
+              <div className="font-medium">{row.name || <em>(no name)</em>}</div>
+              <div className="text-sm opacity-70">
+                {[row.email, row.phone, row.address].filter(Boolean).join(' • ')}
               </div>
-              <div className="muted small">{row.email || '—'} · {row.phone || '—'}</div>
-              <div className="muted small">{row.address || ''}</div>
-              {row.tags?.length > 0 && (
-                <div className="tags">
-                  {row.tags.map((t, i) => <span key={i} className="tag">{t}</span>)}
-                </div>
-              )}
-              {row.notes && <div className="muted small notes">{row.notes}</div>}
-              {showTrash && row.deletedAt && (
-                <div className="muted small">Deleted {new Date(row.deletedAt).toLocaleString()}</div>
-              )}
             </div>
-
-            <div className="row gap">
-              {!showTrash && (
-                <>
-                  <button className="btn" onClick={() => shareVCard(row)}>Share</button>
-                  <button className="btn" onClick={() => startEdit(row)}>Edit</button>
-                  <button className="btn danger" onClick={() => handleDelete(row)}>Delete</button>
-                </>
-              )}
-              {showTrash && (
-                <>
-                  <button className="btn" onClick={() => handleRestore(row)}>Restore</button>
-                  <button className="btn danger" onClick={() => handleHardDelete(row)}>Delete forever</button>
-                </>
-              )}
+            <div className="flex gap-2">
+              <button className="px-3 py-2 rounded-lg border" onClick={() => onEdit(row)}>Edit</button>
+              <button className="px-3 py-2 rounded-lg border text-red-600" onClick={() => onDelete(row)}>Delete</button>
             </div>
           </li>
         ))}
-        {list.length === 0 && (
-          <li className="empty">{showTrash ? 'Trash is empty.' : (query ? 'No contacts match your search.' : 'No contacts yet. Add your first one above.')}</li>
-        )}
       </ul>
-    </section>
+    </div>
   );
 }
