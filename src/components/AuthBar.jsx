@@ -1,38 +1,69 @@
 // src/components/AuthBar.jsx
 import React, { useState } from 'react';
-import { register, login, logout, syncNow } from '../utils/sync';
-import { useToast } from '../App'; // if you don't have this yet, we’ll add next step
+import { register, login, logout } from '../utils/sync.js';
 
 export default function AuthBar() {
-  const toast = useToast ? useToast() : (() => {});
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [user, setUser] = useState(null);
+  const [form, setForm] = useState({ username: '', password: '' });
 
-  async function doRegister() {
-    try { await register(email.trim(), password); toast('Registered & logged in', 'success'); }
-    catch { toast('Register failed', 'error'); }
-  }
-  async function doLogin() {
-    try { await login(email.trim(), password); toast('Logged in', 'success'); }
-    catch { toast('Login failed', 'error'); }
-  }
-  async function doLogout() {
-    try { await logout(); toast('Logged out', 'info'); }
-    catch { toast('Logout failed', 'error'); }
-  }
-  async function doSync() {
-    try { const r = await syncNow(); toast(`Synced (↑${r.pushed} ↓${r.pulled})`, 'success'); }
-    catch { toast('Sync failed (are you logged in?)', 'error'); }
-  }
+  const handleChange = (e) =>
+    setForm({ ...form, [e.target.name]: e.target.value });
 
   return (
-    <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginBottom:12 }}>
-      <input placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} />
-      <input type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} />
-      <button onClick={doRegister}>Register</button>
-      <button onClick={doLogin}>Login</button>
-      <button onClick={doLogout}>Logout</button>
-      <button onClick={doSync}>Sync now</button>
+    <div className="p-2 border-b flex gap-2 items-center">
+      {!user ? (
+        <>
+          <input
+            name="username"
+            placeholder="Username"
+            value={form.username}
+            onChange={handleChange}
+          />
+          <input
+            type="password"
+            name="password"
+            placeholder="Password"
+            value={form.password}
+            onChange={handleChange}
+          />
+          <button
+            onClick={async () => {
+              try {
+                await register(form.username, form.password);
+                alert('Registered!');
+              } catch (err) {
+                alert('Registration failed: ' + err.message);
+              }
+            }}
+          >
+            Register
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                const u = await login(form.username, form.password);
+                setUser(u);
+              } catch (err) {
+                alert('Login failed: ' + err.message);
+              }
+            }}
+          >
+            Login
+          </button>
+        </>
+      ) : (
+        <>
+          <span>Welcome {user.username}</span>
+          <button
+            onClick={async () => {
+              await logout();
+              setUser(null);
+            }}
+          >
+            Logout
+          </button>
+        </>
+      )}
     </div>
   );
 }

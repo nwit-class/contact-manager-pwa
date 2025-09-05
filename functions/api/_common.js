@@ -1,4 +1,4 @@
-﻿/** Allow localhost (any port) + your Pages origin for credentialed CORS */
+﻿// functions/api/_common.js
 const PAGES_ORIGIN = 'https://contact-manager-pwa-ab6.pages.dev';
 
 function isAllowedOrigin(origin) {
@@ -6,47 +6,47 @@ function isAllowedOrigin(origin) {
     const u = new URL(origin);
     if (u.origin === PAGES_ORIGIN) return true;
     if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return true;
-    return false;
-  } catch {
-    return false;
-  }
+  } catch {}
+  return false;
 }
 
-function corsHeadersFor(req) {
+export function corsHeadersFor(req) {
   const origin = req.headers.get('Origin') || '';
-  const headers = new Headers();
+  const h = new Headers();
   if (isAllowedOrigin(origin)) {
-    headers.set('Access-Control-Allow-Origin', origin);
-    headers.set('Vary', 'Origin');
+    h.set('Access-Control-Allow-Origin', origin);
+    h.set('Vary', 'Origin');
   }
-  headers.set('Access-Control-Allow-Credentials', 'true');
-  headers.set('Access-Control-Allow-Headers', 'content-type');
-  headers.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  return headers;
+  h.set('Access-Control-Allow-Credentials', 'true');
+  h.set('Access-Control-Allow-Headers', 'content-type');
+  h.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  return h;
 }
 
 export function corsOptions(request) {
   return new Response(null, { status: 204, headers: corsHeadersFor(request) });
 }
+
 export function okJSON(request, data, init = {}) {
   const h = corsHeadersFor(request);
   h.set('content-type', 'application/json');
-  if (init.headers) for (const [k,v] of Object.entries(init.headers)) h.set(k,v);
+  if (init.headers) for (const [k, v] of Object.entries(init.headers)) h.set(k, v);
   return new Response(JSON.stringify(data), { status: 200, headers: h });
 }
+
 export function errJSON(request, status, message, init = {}) {
   const h = corsHeadersFor(request);
   h.set('content-type', 'application/json');
-  if (init.headers) for (const [k,v] of Object.entries(init.headers)) h.set(k,v);
+  if (init.headers) for (const [k, v] of Object.entries(init.headers)) h.set(k, v);
   return new Response(JSON.stringify({ error: message }), { status, headers: h });
 }
 
-/** JSON body (nice error if malformed) */
 export async function json(request) {
-  try { return await request.json(); } catch { throw new Error('bad-json'); }
+  try { return await request.json(); }
+  catch { throw new Error('bad-json'); }
 }
 
-/** Cookies */
+// cookies
 export function readCookie(req, name) {
   const raw = req.headers.get('cookie') || '';
   for (const part of raw.split(/;\s*/)) {
@@ -56,7 +56,7 @@ export function readCookie(req, name) {
   return '';
 }
 export function setCookieFor(req, resInit = {}, name, value, opts = {}) {
-  const { path='/', httpOnly=true, sameSite='Lax', secure=true, maxAge=undefined } = opts;
+  const { path='/', httpOnly=true, sameSite='Lax', secure=true, maxAge } = opts;
   let cookie = `${name}=${encodeURIComponent(value)}; Path=${path}; SameSite=${sameSite};`;
   if (httpOnly) cookie += ' HttpOnly;';
   if (secure) cookie += ' Secure;';
@@ -64,16 +64,16 @@ export function setCookieFor(req, resInit = {}, name, value, opts = {}) {
 
   const headers = corsHeadersFor(req);
   const extra = resInit.headers || {};
-  for (const [k,v] of Object.entries(extra)) headers.set(k,v);
+  for (const [k, v] of Object.entries(extra)) headers.set(k, v);
   headers.append('Set-Cookie', cookie);
   return { ...resInit, headers };
 }
 
-/** Crypto helpers */
+// crypto
 async function sha256(text) {
   const enc = new TextEncoder().encode(text);
   const buf = await crypto.subtle.digest('SHA-256', enc);
-  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 export async function hashPassword(password, salt) {
   const s = salt || crypto.randomUUID();
@@ -85,18 +85,19 @@ export async function verifyPassword(password, salt, dk) {
   return cand.dk === dk;
 }
 
-/** D1 helpers */
-export async function getUserByEmail(DB, email) {
-  return DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
+// D1 helpers (we store username in the users.email column)
+export async function getUserByName(DB, username) {
+  return DB.prepare('SELECT * FROM users WHERE email = ?').bind(username).first();
 }
-export async function createUser(DB, email, password) {
+export async function createUser(DB, username, password) {
   const now = Date.now();
   const { salt, dk } = await hashPassword(password);
   const r = await DB.prepare(
     'INSERT INTO users (email, password_salt, password_dk, created_at) VALUES (?, ?, ?, ?)'
-  ).bind(email, salt, dk, now).run();
+  ).bind(username, salt, dk, now).run();
   return r.success;
 }
+
 export async function createSession(DB, userId, ttlDays = 30) {
   const token = crypto.randomUUID();
   const expiresAt = Date.now() + ttlDays * 86400 * 1000;
@@ -105,6 +106,7 @@ export async function createSession(DB, userId, ttlDays = 30) {
   ).bind(token, userId, expiresAt).run();
   return { token, expiresAt };
 }
+
 export async function getSession(DB, token) {
   if (!token) return null;
   const row = await DB.prepare('SELECT * FROM sessions WHERE token = ?').bind(token).first();
