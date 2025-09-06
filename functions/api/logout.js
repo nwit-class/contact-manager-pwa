@@ -1,5 +1,5 @@
 ﻿// functions/api/logout.js
-import { okJSON, errJSON, corsOptions, deleteSession, readCookie, setCookieFor } from './_common.js';
+import { corsOptions, okJSON, errJSON, readCookie, clearSession } from '../_common.js';
 
 export function onRequestOptions({ request }) {
   return corsOptions(request);
@@ -8,10 +8,12 @@ export function onRequestOptions({ request }) {
 export async function onRequestPost({ request, env }) {
   try {
     const token = readCookie(request, 'session');
-    if (token && env?.DB) await deleteSession(env.DB, token);
-    const init = setCookieFor(request, {}, 'session', '', { maxAge: 0 });
-    return okJSON(request, { ok: true }, init);
-  } catch (e) {
-    return errJSON(request, 500, 'server-error:' + (e?.message || 'unknown'));
+    if (token) await clearSession(env.DB, token);
+    // clear cookie client-side
+    const h = corsOptions(request).headers;
+    h.append('Set-Cookie', 'session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure');
+    return okJSON(request, { ok: true }, h);
+  } catch {
+    return errJSON(request, 500, 'server-error');
   }
 }
