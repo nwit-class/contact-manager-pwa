@@ -1,14 +1,11 @@
 ﻿// functions/api/logout.js
-import { okJSON, onOptions } from './_cors.js';
-
-export function onRequestOptions({ request }) {
-  return onOptions(request);
+export async function onRequestPost() {
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Set-Cookie': 'session=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0'
+    }
+  });
 }
-
-export async function onRequestPost({ request }) {
-  // Expire the session cookie
-  const headers = {
-    'Set-Cookie': 'session=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0'
-  };
-  return okJSON(request, { ok: true }, { headers });
-}
+export const onRequestOptions = ({ request }) =>
+  new Response(null, { status: 204, headers: { 'Access-Control-Allow-Origin': request.headers.get('Origin') || '', 'Access-Control-Allow-Credentials': 'true', 'Access-Control-Allow-Headers': 'content-type', 'Access-Control-Allow-Methods': 'POST,OPTIONS' }});

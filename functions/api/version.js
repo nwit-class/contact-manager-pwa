@@ -1,12 +1,18 @@
 // functions/api/version.js
 export async function onRequestGet() {
-  return new Response(
-    JSON.stringify({
+  try {
+    const body = {
       ok: true,
-      // Change this string every time you deploy so we know what version is live:
-      version: "v-sync-accept-email-or-username-001",
+      version: "v-sync-unified-no-imports-001",
       now: new Date().toISOString()
-    }),
-    { headers: { "Content-Type": "application/json" } }
-  );
+    };
+    return new Response(JSON.stringify(body), {
+      headers: { "Content-Type": "application/json" }
+    });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: "server error", msg: String(e) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
 }
