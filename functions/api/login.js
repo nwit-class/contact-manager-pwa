@@ -1,6 +1,5 @@
-﻿// functions/api/login.js
+﻿// functions/api/login.js  (same CORS helpers as register.js)
 
-// same inline CORS
 const ALLOW_ORIGINS = [
   'http://localhost:5173',
   'http://localhost:5174',
@@ -15,7 +14,7 @@ function pickOrigin(request) {
 function corsHeaders(request, extra = {}) {
   const origin = pickOrigin(request);
   const base = {
-    'Vary': 'Origin',
+    Vary: 'Origin',
     ...(origin ? { 'Access-Control-Allow-Origin': origin } : {}),
     'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Headers': 'content-type',
@@ -26,11 +25,11 @@ function corsHeaders(request, extra = {}) {
 function okJSON(request, data, init = {}) {
   return new Response(JSON.stringify(data), {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders(request, init.headers || {}) }
+    headers: { 'Content-Type':'application/json', ...corsHeaders(request, init.headers || {}) }
   });
 }
-function errJSON(request, code, message, extra = {}) {
-  return okJSON(request, { error: message, ...extra }, { status: code });
+function errJSON(request, code, msg, extra = {}) {
+  return okJSON(request, { error: msg, ...extra }, { status: code });
 }
 export function onRequestOptions({ request }) {
   return new Response(null, { status: 204, headers: corsHeaders(request) });
@@ -61,7 +60,7 @@ async function readCreds(request) {
   return { account, email, username, password, source };
 }
 
-export async function onRequestPost({ request /*, env */ }) {
+export async function onRequestPost({ request }) {
   try {
     const { account, email, username, password, source } = await readCreds(request);
     if (!account || !password) {
@@ -69,15 +68,7 @@ export async function onRequestPost({ request /*, env */ }) {
         source, got: { email, username, hasPassword: !!password }
       });
     }
-
-    // TODO: validate against D1
-
-    return okJSON(request, {
-      ok: true,
-      account,
-      via: source,
-      setCookie: true
-    }, {
+    return okJSON(request, { ok: true, account, via: source }, {
       headers: {
         'Set-Cookie': `session=${encodeURIComponent(account)}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=${60*60*24*30}`
       }

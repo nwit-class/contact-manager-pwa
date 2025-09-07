@@ -1,6 +1,5 @@
-﻿// functions/api/register.js
+﻿// functions/api/register.js  (inline CORS + accepts email OR username)
 
-// CORS helpers (inline, no imports)
 const ALLOW_ORIGINS = [
   'http://localhost:5173',
   'http://localhost:5174',
@@ -8,6 +7,7 @@ const ALLOW_ORIGINS = [
   'http://localhost:5179',
   'https://00415912.contact-manager-pwa-ab6.pages.dev',
 ];
+
 function pickOrigin(request) {
   const origin = request.headers.get('Origin') || '';
   return ALLOW_ORIGINS.includes(origin) ? origin : '';
@@ -15,7 +15,7 @@ function pickOrigin(request) {
 function corsHeaders(request, extra = {}) {
   const origin = pickOrigin(request);
   const base = {
-    'Vary': 'Origin',
+    Vary: 'Origin',
     ...(origin ? { 'Access-Control-Allow-Origin': origin } : {}),
     'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Headers': 'content-type',
@@ -26,17 +26,16 @@ function corsHeaders(request, extra = {}) {
 function okJSON(request, data, init = {}) {
   return new Response(JSON.stringify(data), {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders(request, init.headers || {}) }
+    headers: { 'Content-Type':'application/json', ...corsHeaders(request, init.headers || {}) }
   });
 }
-function errJSON(request, code, message, extra = {}) {
-  return okJSON(request, { error: message, ...extra }, { status: code });
+function errJSON(request, code, msg, extra = {}) {
+  return okJSON(request, { error: msg, ...extra }, { status: code });
 }
 export function onRequestOptions({ request }) {
   return new Response(null, { status: 204, headers: corsHeaders(request) });
 }
 
-// parse body (email OR username + password), accept json/form/query
 async function readCreds(request) {
   const url = new URL(request.url);
   const ct = (request.headers.get('content-type') || '').toLowerCase();
@@ -63,7 +62,7 @@ async function readCreds(request) {
   return { account, email, username, password, source };
 }
 
-export async function onRequestPost({ request /*, env */ }) {
+export async function onRequestPost({ request }) {
   try {
     const { account, email, username, password, source } = await readCreds(request);
     if (!account || !password) {
@@ -71,15 +70,7 @@ export async function onRequestPost({ request /*, env */ }) {
         source, got: { email, username, hasPassword: !!password }
       });
     }
-
-    // TODO: persist to D1 if desired
-
-    return okJSON(request, {
-      ok: true,
-      account,
-      via: source,
-      setCookie: true
-    }, {
+    return okJSON(request, { ok: true, account, via: source }, {
       headers: {
         'Set-Cookie': `session=${encodeURIComponent(account)}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=${60*60*24*30}`
       }

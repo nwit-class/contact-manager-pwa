@@ -1,18 +1,11 @@
 // functions/api/version.js
 export async function onRequestGet() {
-  try {
-    const body = {
+  return new Response(
+    JSON.stringify({
       ok: true,
-      version: "v-sync-unified-no-imports-001",
+      version: "v-sync-unified-no-imports-002",
       now: new Date().toISOString()
-    };
-    return new Response(JSON.stringify(body), {
-      headers: { "Content-Type": "application/json" }
-    });
-  } catch (e) {
-    return new Response(JSON.stringify({ error: "server error", msg: String(e) }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" }
-    });
-  }
+    }),
+    { headers: { "Content-Type": "application/json" } }
+  );
 }

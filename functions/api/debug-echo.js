@@ -1,24 +1,27 @@
 // functions/api/debug-echo.js
+
+export async function onRequestGet() {
+  return new Response(
+    JSON.stringify({ ok: true, method: "GET", msg: "debug-echo alive" }),
+    { headers: { "Content-Type": "application/json" } }
+  );
+}
+
 export async function onRequestPost({ request }) {
-  try {
-    const ct = (request.headers.get("content-type") || "").toLowerCase();
-    const raw = await request.clone().text().catch(() => "");
-    let parsed = {};
-    try { parsed = JSON.parse(raw); } catch {}
-    return new Response(JSON.stringify({
+  const ct = (request.headers.get("content-type") || "").toLowerCase();
+  const raw = await request.clone().text().catch(() => "");
+  let parsed = {};
+  try { parsed = JSON.parse(raw); } catch {}
+
+  return new Response(
+    JSON.stringify({
       ok: true,
-      method: request.method,
+      method: "POST",
       contentType: ct,
       origin: request.headers.get("Origin") || "",
       rawBody: raw,
       parsed
-    }, null, 2), {
-      headers: { "Content-Type": "application/json" }
-    });
-  } catch (e) {
-    return new Response(JSON.stringify({ error: "server error", msg: String(e) }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" }
-    });
-  }
+    }, null, 2),
+    { headers: { "Content-Type": "application/json" } }
+  );
 }

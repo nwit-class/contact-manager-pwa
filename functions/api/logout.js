@@ -7,5 +7,16 @@ export async function onRequestPost() {
     }
   });
 }
-export const onRequestOptions = ({ request }) =>
-  new Response(null, { status: 204, headers: { 'Access-Control-Allow-Origin': request.headers.get('Origin') || '', 'Access-Control-Allow-Credentials': 'true', 'Access-Control-Allow-Headers': 'content-type', 'Access-Control-Allow-Methods': 'POST,OPTIONS' }});
+export function onRequestOptions({ request }) {
+  const origin = request.headers.get("Origin") || "";
+  return new Response(null, {
+    status: 204,
+    headers: {
+      Vary: "Origin",
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Credentials": "true",
+      "Access-Control-Allow-Headers": "content-type",
+      "Access-Control-Allow-Methods": "POST,OPTIONS",
+    }
+  });
+}
