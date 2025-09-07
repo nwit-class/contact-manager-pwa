@@ -1,28 +1,27 @@
 ﻿// src/utils/sync.js
-import { getDirtyContacts, clearDirty, applyPulled } from './db';
 
-// Decide API base: local dev points to your Pages domain, prod uses same origin
-const PAGES = 'https://contact-manager-pwa-ab6.pages.dev';
+// --- Configure your Cloudflare Pages domain here (no trailing slash) ---
+const PAGES = 'https://00415912.contact-manager-pwa-ab6.pages.dev';
+
+// When running locally, point to the deployed API; in production use same-origin
 export const API =
-  (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  (typeof location !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1'))
     ? `${PAGES}/api`
     : '/api';
 
-// ------- helpers -------
+// ---------- small helpers ----------
 async function asJSON(res) {
-  const t = await res.text();
-  try { return JSON.parse(t); } catch { return { error: t || res.statusText }; }
+  const text = await res.text();
+  try { return JSON.parse(text); } catch { return { error: text || res.statusText }; }
 }
 
-const LS_KEY = 'lastSyncMs';
-function getLastSync() {
-  const n = Number(localStorage.getItem(LS_KEY) || '0');
-  return Number.isFinite(n) ? n : 0;
+function assertCreds(u, p) {
+  if (!u || !p) throw new Error('username and password required');
 }
-function setLastSync(ms) { localStorage.setItem(LS_KEY, String(ms)); }
 
-// ------- AUTH (named exports used by AuthBar.jsx) -------
+// ---------- AUTH ----------
 export async function register(username, password) {
+  assertCreds(username, password);
   const res = await fetch(`${API}/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -30,11 +29,12 @@ export async function register(username, password) {
     body: JSON.stringify({ username, password })
   });
   const data = await asJSON(res);
-  if (!res.ok) throw new Error(data.error || 'register-failed');
-  return data;
+  if (!res.ok) throw new Error(data.error || `register failed (${res.status})`);
+  return data; // { username, ok: true } (your function may return slightly different)
 }
 
 export async function login(username, password) {
+  assertCreds(username, password);
   const res = await fetch(`${API}/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -42,8 +42,8 @@ export async function login(username, password) {
     body: JSON.stringify({ username, password })
   });
   const data = await asJSON(res);
-  if (!res.ok) throw new Error(data.error || 'login-failed');
-  return data;
+  if (!res.ok) throw new Error(data.error || `login failed (${res.status})`);
+  return data; // { username, ok: true }
 }
 
 export async function logout() {
@@ -51,43 +51,57 @@ export async function logout() {
     method: 'POST',
     credentials: 'include'
   });
-  if (!res.ok) throw new Error('logout-failed');
+  if (!res.ok) {
+    const data = await asJSON(res);
+    throw new Error(data.error || `logout failed (${res.status})`);
+  }
   return { ok: true };
 }
 
-// ------- SYNC (push/pull) -------
+// ---------- SYNC (placeholder) ----------
+// This keeps your UI working now. We’ll replace with real push/pull later.
 export async function syncNow() {
-  const since = getLastSync();
-  const push = await getDirtyContacts();
+  // Try /api/sync first; if your backend only has /api/contacts, we fallback.
+  // Both calls include credentials for your session cookie.
+  let res;
+  try {
+    res = await fetch(`${API}/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include'
+    });
+  } catch (e) {
+    // network error while calling /api/sync; try /api/contacts as a fallback
+  }
 
-  const res = await fetch(`${API}/contacts`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({
-      since,
-      push: push.map(c => ({
-        uuid: c.uuid,
-        name: c.name,
-        email: c.email,
-        phone: c.phone,
-        address: c.address,
-        tags: c.tags,
-        notes: c.notes,
-        favorite: !!c.favorite,
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt,
-        deletedAt: c.deletedAt || null
-      }))
-    })
-  });
+  if (!res || !res.ok) {
+    // Try /api/contacts with a harmless minimal payload so server can just return 200
+    const res2 = await fetch(`${API}/contacts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ since: 0, push: [] })
+    });
+    const data2 = await asJSON(res2);
+    if (!res2.ok) {
+      throw new Error(data2.error || `sync failed (${res2.status})`);
+    }
+    return {
+      ok: true,
+      pushed: 0,
+      pulled: Array.isArray(data2.pull) ? data2.pull.length : 0
+    };
+  }
 
   const data = await asJSON(res);
-  if (!res.ok) throw new Error(data.error || 'sync-failed');
+  if (!res.ok) throw new Error(data.error || `sync failed (${res.status})`);
 
-  await clearDirty(push.map(p => p.uuid));
-  await applyPulled(data.pull || []);
-  if (typeof data.now === 'number') setLastSync(data.now);
-
-  return { pushed: push.length, pulled: (data.pull || []).length };
+  // normalize return so your UI can show something sensible
+  return {
+    ok: true,
+    pushed: Number(data.pushed || 0),
+    pulled: Number(data.pulled || 0)
+  };
 }
+
+

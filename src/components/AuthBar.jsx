@@ -3,67 +3,45 @@ import React, { useState } from 'react';
 import { register, login, logout } from '../utils/sync.js';
 
 export default function AuthBar() {
-  const [user, setUser] = useState(null);
-  const [form, setForm] = useState({ username: '', password: '' });
+  const [id, setId] = useState('');       // email or username
+  const [pw, setPw] = useState('');
+  const [msg, setMsg] = useState('');
 
-  const handleChange = (e) =>
-    setForm({ ...form, [e.target.name]: e.target.value });
+  const handle = (fn) => async () => {
+    setMsg('');
+    try {
+      const res = await fn(id.trim(), pw);
+      setMsg(`✅ ${fn.name} ok: ${res.account || res.username || ''}`);
+    } catch (e) {
+      setMsg(`❌ ${fn.name} failed: ${e.message || e}`);
+    }
+  };
 
   return (
-    <div className="p-2 border-b flex gap-2 items-center">
-      {!user ? (
-        <>
-          <input
-            name="username"
-            placeholder="Username"
-            value={form.username}
-            onChange={handleChange}
-          />
-          <input
-            type="password"
-            name="password"
-            placeholder="Password"
-            value={form.password}
-            onChange={handleChange}
-          />
-          <button
-            onClick={async () => {
-              try {
-                await register(form.username, form.password);
-                alert('Registered!');
-              } catch (err) {
-                alert('Registration failed: ' + err.message);
-              }
-            }}
-          >
-            Register
-          </button>
-          <button
-            onClick={async () => {
-              try {
-                const u = await login(form.username, form.password);
-                setUser(u);
-              } catch (err) {
-                alert('Login failed: ' + err.message);
-              }
-            }}
-          >
-            Login
-          </button>
-        </>
-      ) : (
-        <>
-          <span>Welcome {user.username}</span>
-          <button
-            onClick={async () => {
-              await logout();
-              setUser(null);
-            }}
-          >
-            Logout
-          </button>
-        </>
-      )}
+    <div className="flex flex-wrap gap-2 items-center">
+      <input
+        className="border rounded px-3 py-2"
+        placeholder="email or username"
+        value={id}
+        onChange={(e) => setId(e.target.value)}
+        name="email"  // helpful for autofill
+        autoComplete="username"
+      />
+      <input
+        className="border rounded px-3 py-2"
+        placeholder="password"
+        type="password"
+        value={pw}
+        onChange={(e) => setPw(e.target.value)}
+        name="password"
+        autoComplete="current-password"
+      />
+
+      <button className="px-3 py-2 rounded border" onClick={handle(register)}>Register</button>
+      <button className="px-3 py-2 rounded border" onClick={handle(login)}>Login</button>
+      <button className="px-3 py-2 rounded border" onClick={handle(logout)}>Logout</button>
+
+      {msg && <span className="text-sm">{msg}</span>}
     </div>
   );
 }

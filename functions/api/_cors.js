@@ -3,10 +3,10 @@ const ALLOW_ORIGINS = [
   'http://localhost:5173',
   'http://localhost:5174',
   'http://localhost:5176',
-  'https://00415912.contact-manager-pwa-ab6.pages.dev', // <-- your Pages URL
+  'http://localhost:5179',
+  'https://00415912.contact-manager-pwa-ab6.pages.dev',
 ];
 
-// Resolve the allowed Origin (must not be "*"" when using credentials)
 export function pickOrigin(request) {
   const origin = request.headers.get('Origin') || '';
   return ALLOW_ORIGINS.includes(origin) ? origin : '';
@@ -15,7 +15,7 @@ export function pickOrigin(request) {
 export function corsHeaders(request, extra = {}) {
   const origin = pickOrigin(request);
   const base = {
-    'Vary': 'Origin',
+    Vary: 'Origin',
     ...(origin ? { 'Access-Control-Allow-Origin': origin } : {}),
     'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Headers': 'content-type',
@@ -29,15 +29,46 @@ export function okJSON(request, data, init = {}) {
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      ...corsHeaders(request, init.headers || {})
-    }
+      ...corsHeaders(request, init.headers || {}),
+    },
   });
 }
 
-export function errJSON(request, code, message) {
-  return okJSON(request, { error: message }, { status: code });
+export function errJSON(request, code, message, extra = {}) {
+  return okJSON(request, { error: message, ...extra }, { status: code });
 }
 
 export function onOptions(request) {
   return new Response(null, { status: 204, headers: corsHeaders(request) });
+}
+
+// ---- credentials parsing: accept JSON, form, or query; email OR username ----
+export async function readCreds(request) {
+  const url = new URL(request.url);
+  const ct = (request.headers.get('content-type') || '').toLowerCase();
+  let body = {};
+  let source = 'unknown';
+
+  if (ct.includes('application/json')) {
+    source = 'json';
+    body = await request.json().catch(() => ({}));
+  } else if (ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data')) {
+    source = 'form';
+    const form = await request.formData().catch(() => null);
+    if (form) {
+      body = Object.fromEntries(form.entries());
+    }
+  } else {
+    source = 'query';
+    body = Object.fromEntries(url.searchParams.entries());
+  }
+
+  const email = (body.email || '').trim();
+  const username = (body.username || '').trim();
+  const password = (body.password || '').trim();
+
+  // normalize to "account" – use email if present, otherwise username
+  const account = email || username;
+
+  return { account, email, username, password, source };
 }
