@@ -1,1 +1,8 @@
-﻿/*   /index.html   200
+﻿# Leave API requests alone (no rewrite)
+# The next line is a no-op that ensures /api/* isn't accidentally matched by the catch-all:
+# (It maps /api/* to itself with 200, so no redirect happens.)
+/api/*   /api/:splat   200
+
+# SPA fallback for everything else:
+# This must be AFTER the /api/* rule.
+/*        /index.html   200
