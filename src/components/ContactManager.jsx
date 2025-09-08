@@ -5,7 +5,7 @@ import {
   upsertContact,
   markDeleted
 } from '../utils/db';
-import { syncNow } from '../utils/sync';
+import { syncNow } from '../utils/sync.js';
 
 export default function ContactManager() {
   const empty = { id: null, name: '', email: '', phone: '', address: '', notes: '', tags: [] };
