@@ -48,3 +48,27 @@ export async function me() {
 // export async function syncNow(payload) {
 //   return jsonFetch("/api/sync", { method: "POST", body: JSON.stringify(payload) });
 // }
+export async function syncNow(payload = {}) {
+  // Sends your local contacts to the server for syncing
+  const res = await fetch("/api/sync", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    /* if not JSON, ignore */
+  }
+
+  if (!res.ok) {
+    const msg = data?.error || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+
+  return data ?? { ok: true, message: "Synced successfully" };
+}
+
