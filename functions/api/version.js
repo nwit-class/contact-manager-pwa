@@ -1,11 +1,8 @@
 // functions/api/version.js
-export async function onRequestGet() {
-  return new Response(
-    JSON.stringify({
-      ok: true,
-      version: "v-sync-unified-no-imports-002",
-      now: new Date().toISOString()
-    }),
-    { headers: { "Content-Type": "application/json" } }
-  );
+import { json, makeCorsHeaders } from "../_common.js";
+
+export async function onRequestGet({ request }) {
+  const origin = request.headers.get("Origin");
+  return json({ ok: true, version: "v0.1-starter" }, 200, makeCorsHeaders(origin));
 }
+

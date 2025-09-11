@@ -1,63 +1,20 @@
-// src/utils/sync.js
-const PAGES = 'https://00415912.contact-manager-pwa-ab6.pages.dev';
+// functions/api/sync.js
+import { json, makeCorsHeaders, corsOptionsResponse, getSessionEmail } from "../_common.js";
 
-export const API =
-  (typeof location !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1'))
-    ? `${PAGES}/api`
-    : '/api';
-
-async function asJSON(res) {
-  const t = await res.text();
-  try { return JSON.parse(t); } catch { return { error: t || res.statusText }; }
+export async function onRequestOptions({ request }) {
+  return corsOptionsResponse(request.headers.get("Origin"));
 }
 
-function assertCreds(id, pw) {
-  if (!id || !pw) throw new Error('email/username and password required');
-}
+export async function onRequestPost({ request, env }) {
+  const origin = request.headers.get("Origin");
+  const headers = makeCorsHeaders(origin);
 
-export async function register(emailOrUsername, password) {
-  assertCreds(emailOrUsername, password);
-  const body = { email: emailOrUsername, username: emailOrUsername, password };
-  const res = await fetch(`${API}/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify(body),
-  });
-  const data = await asJSON(res);
-  if (!res.ok) throw new Error(data.error || `register failed (${res.status})`);
-  return data;
-}
+  const email = await getSessionEmail(env, request);
+  if (!email) return json({ error: "not logged in" }, 401, headers);
 
-export async function login(emailOrUsername, password) {
-  assertCreds(emailOrUsername, password);
-  const body = { email: emailOrUsername, username: emailOrUsername, password };
-  const res = await fetch(`${API}/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify(body),
-  });
-  const data = await asJSON(res);
-  if (!res.ok) throw new Error(data.error || `login failed (${res.status})`);
-  return data;
+  let body;
+  try { body = await request.json(); } catch {}
+  const contacts = body?.contacts || [];
+  // TODO: persist contacts in D1 per user; for now echo back
+  return json({ ok: true, count: contacts.length, message: "Synced successfully" }, 200, headers);
 }
-
-export async function logout() {
-  const res = await fetch(`${API}/logout`, { method: 'POST', credentials: 'include' });
-  const data = await asJSON(res);
-  if (!res.ok) throw new Error(data.error || `logout failed (${res.status})`);
-  return data;
-}
-
-export async function syncNow() {
-  const res = await fetch(`${API}/sync`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-  });
-  const data = await asJSON(res);
-  if (!res.ok) throw new Error(data.error || `sync failed (${res.status})`);
-  return { ok: true, pushed: Number(data.pushed || 0), pulled: Number(data.pulled || 0) };
-}
-

@@ -1,81 +1,26 @@
-﻿// functions/api/register.js  (inline CORS + accepts email OR username)
+﻿// functions/api/register.js
+import {
+  json, makeCorsHeaders, corsOptionsResponse,
+  setCookie, signSession
+} from "../_common.js";
 
-const ALLOW_ORIGINS = [
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:5176',
-  'http://localhost:5179',
-  'https://00415912.contact-manager-pwa-ab6.pages.dev',
-];
-
-function pickOrigin(request) {
-  const origin = request.headers.get('Origin') || '';
-  return ALLOW_ORIGINS.includes(origin) ? origin : '';
-}
-function corsHeaders(request, extra = {}) {
-  const origin = pickOrigin(request);
-  const base = {
-    Vary: 'Origin',
-    ...(origin ? { 'Access-Control-Allow-Origin': origin } : {}),
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Headers': 'content-type',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  };
-  return { ...base, ...extra };
-}
-function okJSON(request, data, init = {}) {
-  return new Response(JSON.stringify(data), {
-    ...init,
-    headers: { 'Content-Type':'application/json', ...corsHeaders(request, init.headers || {}) }
-  });
-}
-function errJSON(request, code, msg, extra = {}) {
-  return okJSON(request, { error: msg, ...extra }, { status: code });
-}
-export function onRequestOptions({ request }) {
-  return new Response(null, { status: 204, headers: corsHeaders(request) });
+export async function onRequestOptions({ request }) {
+  return corsOptionsResponse(request.headers.get("Origin"));
 }
 
-async function readCreds(request) {
-  const url = new URL(request.url);
-  const ct = (request.headers.get('content-type') || '').toLowerCase();
-  let body = {};
-  let source = 'unknown';
+export async function onRequestPost({ request, env }) {
+  const origin = request.headers.get("Origin");
+  const headers = makeCorsHeaders(origin);
 
-  if (ct.includes('application/json')) {
-    source = 'json';
-    body = await request.json().catch(() => ({}));
-  } else if (ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data')) {
-    source = 'form';
-    const form = await request.formData().catch(() => null);
-    if (form) body = Object.fromEntries(form.entries());
-  } else {
-    source = 'query';
-    body = Object.fromEntries(url.searchParams.entries());
-  }
+  let body;
+  try { body = await request.json(); } catch {}
+  const { email, password } = body || {};
+  if (!email || !password) return json({ error: "email and password required" }, 400, headers);
 
-  const email = (body.email || '').trim();
-  const username = (body.username || '').trim();
-  const password = (body.password || '').trim();
-  const account = email || username;
+  // TODO: Create user in D1; for now we just accept it
+  const token = await signSession({ email, iat: Date.now() }, env.SECRET || "dev-secret");
+  setCookie(headers, "session", token, request);
 
-  return { account, email, username, password, source };
+  return json({ ok: true, message: "Registered successfully" }, 200, headers);
 }
 
-export async function onRequestPost({ request }) {
-  try {
-    const { account, email, username, password, source } = await readCreds(request);
-    if (!account || !password) {
-      return errJSON(request, 400, 'email/username and password required', {
-        source, got: { email, username, hasPassword: !!password }
-      });
-    }
-    return okJSON(request, { ok: true, account, via: source }, {
-      headers: {
-        'Set-Cookie': `session=${encodeURIComponent(account)}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=${60*60*24*30}`
-      }
-    });
-  } catch (e) {
-    return errJSON(request, 500, 'server error', { msg: String(e) });
-  }
-}

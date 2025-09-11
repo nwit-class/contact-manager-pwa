@@ -1,22 +1,14 @@
 ﻿// functions/api/logout.js
-export async function onRequestPost() {
-  return new Response(JSON.stringify({ ok: true }), {
-    headers: {
-      'Content-Type': 'application/json',
-      'Set-Cookie': 'session=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0'
-    }
-  });
+import { json, makeCorsHeaders, corsOptionsResponse, clearCookie } from "../_common.js";
+
+export async function onRequestOptions({ request }) {
+  return corsOptionsResponse(request.headers.get("Origin"));
 }
-export function onRequestOptions({ request }) {
-  const origin = request.headers.get("Origin") || "";
-  return new Response(null, {
-    status: 204,
-    headers: {
-      Vary: "Origin",
-      "Access-Control-Allow-Origin": origin,
-      "Access-Control-Allow-Credentials": "true",
-      "Access-Control-Allow-Headers": "content-type",
-      "Access-Control-Allow-Methods": "POST,OPTIONS",
-    }
-  });
+
+export async function onRequestPost({ request }) {
+  const origin = request.headers.get("Origin");
+  const headers = makeCorsHeaders(origin);
+  clearCookie(headers, "session", request);
+  return json({ ok: true, message: "Logged out" }, 200, headers);
 }
+
