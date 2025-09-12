@@ -1,14 +1,2 @@
-﻿// functions/api/logout.js
-import { json, makeCorsHeaders, corsOptionsResponse, clearCookie } from "../_common.js";
-
-export async function onRequestOptions({ request }) {
-  return corsOptionsResponse(request.headers.get("Origin"));
-}
-
-export async function onRequestPost({ request }) {
-  const origin = request.headers.get("Origin");
-  const headers = makeCorsHeaders(origin);
-  clearCookie(headers, "session", request);
-  return json({ ok: true, message: "Logged out" }, 200, headers);
-}
+// functions/api/logout.jsimport { json, makeCorsHeaders, corsOptionsResponse, clearCookie } from "../_common.js";export async function onRequestOptions({ request }) {  return corsOptionsResponse(request.headers.get("Origin"));}export async function onRequestPost({ request }) {  const origin = request.headers.get("Origin");  const headers = makeCorsHeaders(origin);  clearCookie(headers, "session", request);  return json({ ok: true, message: "Logged out" }, 200, headers);}
 

@@ -1,14 +1,2 @@
-// functions/api/me.js
-import { json, makeCorsHeaders, corsOptionsResponse, getSessionEmail } from "../_common.js";
-
-export async function onRequestOptions({ request }) {
-  return corsOptionsResponse(request.headers.get("Origin"));
-}
-
-export async function onRequestGet({ request, env }) {
-  const origin = request.headers.get("Origin");
-  const headers = makeCorsHeaders(origin);
-  const email = await getSessionEmail(env, request);
-  return json({ ok: true, email: email || null }, 200, headers);
-}
+// functions/api/me.jsimport { json, makeCorsHeaders, corsOptionsResponse, getSessionEmail } from "../_common.js";export async function onRequestOptions({ request }) {  return corsOptionsResponse(request.headers.get("Origin"));}export async function onRequestGet({ request, env }) {  const origin = request.headers.get("Origin");  const headers = makeCorsHeaders(origin);  const email = await getSessionEmail(env, request);  return json({ ok: true, email: email || null }, 200, headers);}
 

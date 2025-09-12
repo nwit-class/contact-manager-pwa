@@ -1,10 +1,2 @@
-﻿// functions/api/ping.js
-import { corsOptions, okJSON } from '../_common.js';
+// functions/api/ping.jsimport { corsOptions, okJSON } from '../_common.js';export function onRequestOptions({ request }) {  return corsOptions(request);}export function onRequestGet({ request }) {  return okJSON(request, { ok: true, ts: Date.now() });}
 
-export function onRequestOptions({ request }) {
-  return corsOptions(request);
-}
-
-export function onRequestGet({ request }) {
-  return okJSON(request, { ok: true, ts: Date.now() });
-}
