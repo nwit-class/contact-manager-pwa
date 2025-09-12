@@ -1,20 +1,17 @@
-// functions/api/sync.js
-import { json, makeCorsHeaders, corsOptionsResponse, getSessionEmail } from "../_common.js";
+import { json, errJSON, makeCorsHeaders, corsOptionsResponse, getSessionEmail } from "../_common.js";
 
-export async function onRequestOptions({ request }) {
-  return corsOptionsResponse(request.headers.get("Origin"));
-}
+export const onRequestOptions = async (ctx) => {
+  const origin = ctx.request.headers.get("Origin");
+  return corsOptionsResponse(origin);
+};
 
-export async function onRequestPost({ request, env }) {
-  const origin = request.headers.get("Origin");
-  const headers = makeCorsHeaders(origin);
+export const onRequestPost = async (ctx) => {
+  const origin = ctx.request.headers.get("Origin");
+  const email = await getSessionEmail(ctx.env, ctx.request);
+  if (!email) return errJSON("unauthorized", 401, origin);
 
-  const email = await getSessionEmail(env, request);
-  if (!email) return json({ error: "not logged in" }, 401, headers);
-
-  let body;
-  try { body = await request.json(); } catch {}
-  const contacts = body?.contacts || [];
-  // TODO: persist contacts in D1 per user; for now echo back
-  return json({ ok: true, count: contacts.length, message: "Synced successfully" }, 200, headers);
-}
+  let body = {};
+  try { body = await ctx.request.json(); } catch {}
+  // TODO: use ctx.env.DB to upsert contacts
+  return json({ ok: true, received: body }, 200, {}, origin);
+};
