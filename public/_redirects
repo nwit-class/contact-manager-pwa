@@ -1,3 +1,11 @@
-﻿/api/*   /api/:splat   200
-/*       /index.html   200
+﻿# --- PWA files must be served as-is, not rewritten to index.html
+/sw.js                  /sw.js                    200
+/workbox-*.js           /workbox-*.js             200
+/registerSW.js          /registerSW.js            200
+/assets/*               /assets/:splat            200
 
+# --- Cloudflare Pages Functions
+/api/*                  /api/:splat               200
+
+# --- SPA fallback for everything else
+/*                      /index.html               200
